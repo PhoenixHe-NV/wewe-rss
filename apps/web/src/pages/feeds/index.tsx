@@ -236,23 +236,23 @@ const Feeds = () => {
                   </Link>
                 </Tooltip>
                 <Divider orientation="vertical" />
-                <div className="flex items-center gap-2">
-                  <div className="text-small">历史截止日期</div>
-                  <Input
-                    type="date"
-                    size="sm"
-                    className="w-36"
-                    value={limitStartDate}
-                    onChange={(e) => { console.log(e.target.value); setLimitStartDate(e.target.value)}}
-                    placeholder="选择日期"
-                  />
-                </div>
                 {currentMpInfo.hasHistory === 1 && (
                   <>
                     <div className="flex items-center gap-2">
+                      <div className="text-small">截止</div>
+                      <Input
+                        type="date"
+                        size="sm"
+                        className="w-36"
+                        value={limitStartDate}
+                        onChange={(e) => { console.log(e.target.value); setLimitStartDate(e.target.value)}}
+                        placeholder="选择日期"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
                       {inProgressHistoryMp?.id === currentMpInfo.id && (
                         <span className="text-small text-primary">
-                          正在获取第{inProgressHistoryMp.page}页...
+                          正在获取第{inProgressHistoryMp?.page}页...
                         </span>
                       )}
                       <Link

@@ -32,7 +32,7 @@ const ArticleList: FC<{ id: string }> = ({ id }) => {
 
   const items = useMemo(() => {
     const items = data
-      ? data.pages.reduce((acc, page) => [...acc, ...page.items], [] as any[])
+      ? data.pages.reduce<any[]>((acc, page) => [...acc, ...page.items], [])
       : [];
 
     return items;

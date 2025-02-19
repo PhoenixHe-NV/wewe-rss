@@ -55,5 +55,20 @@ model Article {
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime? @default(now()) @updatedAt @map("updated_at")
 
+  cache ArticleCache?
+
   @@map("articles")
+  @@index([mpId])
+}
+
+model ArticleCache {
+  id        String    @id @default(uuid())
+  articleId String    @map("article_id") @db.VarChar(255) @unique
+  content   String    @db.Text
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime? @default(now()) @updatedAt @map("updated_at")
+  article   Article   @relation(fields: [articleId], references: [id])
+
+  @@map("article_caches")
+  @@index([articleId])
 }

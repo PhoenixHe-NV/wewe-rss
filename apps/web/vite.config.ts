@@ -44,6 +44,15 @@ export default defineConfig({
       },
     ],
   },
+  server: {
+    hmr: {
+      protocol: 'ws',
+      host: 'localhost',
+    },
+    watch: {
+      usePolling: true,
+    },
+  },
   build: {
     emptyOutDir: true,
     outDir: resolve(projectRootDir, '..', 'server', 'client'),
