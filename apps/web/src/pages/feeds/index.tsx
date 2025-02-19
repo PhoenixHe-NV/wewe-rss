@@ -15,6 +15,7 @@ import {
   Tooltip,
   useDisclosure,
   Link,
+  Input,
 } from '@nextui-org/react';
 import { PlusIcon } from '@web/components/PlusIcon';
 import { trpc } from '@web/utils/trpc';
@@ -70,6 +71,8 @@ const Feeds = () => {
   const [wxsLink, setWxsLink] = useState('');
 
   const [currentMpId, setCurrentMpId] = useState(id || '');
+
+  const [limitStartDate, setLimitStartDate] = useState('2025-01-01');
 
   const handleConfirm = async () => {
     console.log('wxsLink', wxsLink);
@@ -169,7 +172,7 @@ const Feeds = () => {
               <ListboxSection showDivider>
                 <ListboxItem
                   key={''}
-                  href={`/feeds`}
+                  // href={`/feeds`}
                   className={isActive('') ? 'bg-primary-50 text-primary' : ''}
                   startContent={<Avatar name="ALL"></Avatar>}
                 >
@@ -181,12 +184,13 @@ const Feeds = () => {
                 {feedData?.items.map((item) => {
                   return (
                     <ListboxItem
-                      href={`/feeds/${item.id}`}
+                      // href={`/feeds/${item.id}`}
                       className={
                         isActive(item.id) ? 'bg-primary-50 text-primary' : ''
                       }
                       key={item.id}
                       startContent={<Avatar src={item.mpCover}></Avatar>}
+                      onSelect={() => setCurrentMpId(item.id)}
                     >
                       {item.mpName}
                     </ListboxItem>
@@ -232,20 +236,25 @@ const Feeds = () => {
                   </Link>
                 </Tooltip>
                 <Divider orientation="vertical" />
+                <div className="flex items-center gap-2">
+                  <div className="text-small">历史截止日期</div>
+                  <Input
+                    type="date"
+                    size="sm"
+                    className="w-36"
+                    value={limitStartDate}
+                    onChange={(e) => { console.log(e.target.value); setLimitStartDate(e.target.value)}}
+                    placeholder="选择日期"
+                  />
+                </div>
                 {currentMpInfo.hasHistory === 1 && (
                   <>
-                    <Tooltip
-                      content={
-                        inProgressHistoryMp?.id === currentMpInfo.id
-                          ? `正在获取第${inProgressHistoryMp.page}页...`
-                          : `历史文章需要分批次拉取，请耐心等候，频繁调用可能会导致一段时间内不可用`
-                      }
-                      color={
-                        inProgressHistoryMp?.id === currentMpInfo.id
-                          ? 'primary'
-                          : 'danger'
-                      }
-                    >
+                    <div className="flex items-center gap-2">
+                      {inProgressHistoryMp?.id === currentMpInfo.id && (
+                        <span className="text-small text-primary">
+                          正在获取第{inProgressHistoryMp.page}页...
+                        </span>
+                      )}
                       <Link
                         size="sm"
                         href="#"
@@ -263,10 +272,12 @@ const Feeds = () => {
                           if (inProgressHistoryMp?.id === currentMpInfo.id) {
                             await getHistoryArticles({
                               mpId: '',
+                              limit_start_date: limitStartDate || undefined,
                             });
                           } else {
                             await getHistoryArticles({
                               mpId: currentMpInfo.id,
+                              limit_start_date: limitStartDate || undefined,
                             });
                           }
 
@@ -274,10 +285,10 @@ const Feeds = () => {
                         }}
                       >
                         {inProgressHistoryMp?.id === currentMpInfo.id
-                          ? `停止获取历史文章`
+                          ? `停止获取`
                           : `获取历史文章`}
                       </Link>
-                    </Tooltip>
+                    </div>
                     <Divider orientation="vertical" />
                   </>
                 )}
@@ -388,7 +399,7 @@ const Feeds = () => {
             )}
           </div>
           <div className="p-2 overflow-y-auto">
-            <ArticleList></ArticleList>
+            <ArticleList id={currentMpId}></ArticleList>
           </div>
         </div>
       </div>

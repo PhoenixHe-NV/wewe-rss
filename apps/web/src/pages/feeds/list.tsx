@@ -15,10 +15,9 @@ import { trpc } from '@web/utils/trpc';
 import dayjs from 'dayjs';
 import { useParams } from 'react-router-dom';
 
-const ArticleList: FC = () => {
-  const { id } = useParams();
-
+const ArticleList: FC<{ id: string }> = ({ id }) => {
   const mpId = id || '';
+  console.log('mpId', mpId);
 
   const { data, fetchNextPage, isLoading, hasNextPage } =
     trpc.article.list.useInfiniteQuery(

@@ -263,10 +263,11 @@ export class TrpcRouter {
       .input(
         z.object({
           mpId: z.string().optional(),
+          limit_start_date: z.string().optional(),
         }),
       )
-      .mutation(async ({ input: { mpId = '' } }) => {
-        this.trpcService.getHistoryMpArticles(mpId);
+      .mutation(async ({ input: { mpId = '', limit_start_date = '' } }) => {
+        this.trpcService.getHistoryMpArticles(mpId, limit_start_date ? new Date(limit_start_date) : undefined);
       }),
     getInProgressHistoryMp: this.trpcService.protectedProcedure.query(
       async () => {

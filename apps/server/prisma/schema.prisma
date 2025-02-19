@@ -1,5 +1,5 @@
 datasource db {
-  provider = "mysql"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -14,7 +14,7 @@ model Account {
   token     String    @map("token") @db.VarChar(2048)
   name      String    @map("name") @db.VarChar(1024)
   // 状态 0:失效 1:启用 2:禁用
-  status    Int       @default(1) @map("status") @db.Int()
+  status    Int       @default(1) @map("status")
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime? @default(now()) @updatedAt @map("updated_at")
 
@@ -26,9 +26,9 @@ model Feed {
   id      String @id @db.VarChar(255)
   mpName  String @map("mp_name") @db.VarChar(512)
   mpCover String @map("mp_cover") @db.VarChar(1024)
-  mpIntro String @map("mp_intro") @db.Text()
+  mpIntro String @map("mp_intro") @db.Text
   // 状态 0:失效 1:启用 2:禁用
-  status  Int    @default(1) @map("status") @db.Int()
+  status  Int    @default(1) @map("status")
 
   // article最后同步时间
   syncTime Int @default(0) @map("sync_time")

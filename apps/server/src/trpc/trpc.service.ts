@@ -171,7 +171,7 @@ export class TrpcService {
     }
   }
 
-  async refreshMpArticlesAndUpdateFeed(mpId: string, page = 1) {
+  async refreshMpArticlesAndUpdateFeed(mpId: string, page = 1, limit_start_date?: Date) {
     const articles = await this.getMpArticles(mpId, page);
 
     if (articles.length > 0) {
@@ -220,7 +220,13 @@ export class TrpcService {
       },
     });
 
-    return { hasHistory };
+    let hasOlderArticle = false;
+    if (limit_start_date) {
+      const limitTimestamp = Math.floor(limit_start_date.getTime() / 1000);
+      hasOlderArticle = articles.some(article => article.publishTime < limitTimestamp);
+    }
+
+    return { hasHistory, hasOlderArticle };
   }
 
   inProgressHistoryMp = {
@@ -228,7 +234,7 @@ export class TrpcService {
     page: 1,
   };
 
-  async getHistoryMpArticles(mpId: string) {
+  async getHistoryMpArticles(mpId: string, limit_start_date?: Date) {
     if (this.inProgressHistoryMp.id === mpId) {
       this.logger.log(`getHistoryMpArticles(${mpId}) is running`);
       return;
@@ -272,13 +278,20 @@ export class TrpcService {
           );
           break;
         }
-        const { hasHistory } = await this.refreshMpArticlesAndUpdateFeed(
+        const { hasHistory, hasOlderArticle } = await this.refreshMpArticlesAndUpdateFeed(
           mpId,
           this.inProgressHistoryMp.page,
+          limit_start_date,
         );
         if (hasHistory < 1) {
           this.logger.log(
             `getHistoryMpArticles(${mpId}) has no history, break`,
+          );
+          break;
+        }
+        if (hasOlderArticle) {
+          this.logger.log(
+            `getHistoryMpArticles(${mpId}) reached date limit ${limit_start_date?.toISOString()}, break`,
           );
           break;
         }
