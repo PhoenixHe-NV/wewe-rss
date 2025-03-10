@@ -10,6 +10,7 @@ import {
   Button,
   Spinner,
   Link,
+  Chip,
 } from '@nextui-org/react';
 import { trpc } from '@web/utils/trpc';
 import dayjs from 'dayjs';
@@ -68,6 +69,7 @@ const ArticleList: FC<{ id: string }> = ({ id }) => {
           <TableColumn width={180} key="publishTime">
             发布时间
           </TableColumn>
+          <TableColumn width={100} key="isCached">缓存状态</TableColumn>
         </TableHeader>
         <TableBody
           isLoading={isLoading}
@@ -83,6 +85,18 @@ const ArticleList: FC<{ id: string }> = ({ id }) => {
                 if (columnKey === 'publishTime') {
                   value = dayjs(value * 1e3).format('YYYY-MM-DD HH:mm:ss');
                   return <TableCell>{value}</TableCell>;
+                }
+
+                if (columnKey === 'isCached') {
+                  return (
+                    <TableCell>
+                      {value ? (
+                        <Chip color="success" size="sm">已缓存</Chip>
+                      ) : (
+                        <Chip color="default" size="sm">未缓存</Chip>
+                      )}
+                    </TableCell>
+                  );
                 }
 
                 if (columnKey === 'title') {

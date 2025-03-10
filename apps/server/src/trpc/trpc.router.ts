@@ -302,7 +302,11 @@ export class TrpcRouter {
                 id: cursor,
               }
             : undefined,
+          include: {
+            cache: true,
+          },
         });
+        
         let nextCursor: typeof cursor | undefined = undefined;
         if (items.length > limit) {
           // Remove the last item and use it as next cursor
@@ -312,8 +316,15 @@ export class TrpcRouter {
           nextCursor = nextItem.id;
         }
 
+        // Transform the items to include isCached property
+        const transformedItems = items.map(item => ({
+          ...item,
+          isCached: item.cache !== null,
+          cache: undefined, // Remove the cache object from the response
+        }));
+
         return {
-          items,
+          items: transformedItems,
           nextCursor,
         };
       }),

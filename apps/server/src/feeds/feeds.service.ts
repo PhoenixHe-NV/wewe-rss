@@ -135,17 +135,32 @@ export class FeedsService {
   }
 
   async tryGetContent(id: string) {
-    let content = mpCache.get(id);
-    if (content) {
-      return content;
-    }
-    const url = `https://mp.weixin.qq.com/s/${id}`;
-    content = await this.getHtmlByUrl(url).catch((e) => {
-      this.logger.error(`getHtmlByUrl(${url}) error: ${e.message}`);
+    // First check if content exists in the database cache
+    const cachedArticle = await this.prismaService.articleCache.findFirst({
+      where: { articleId: id },
+    });
 
+    if (cachedArticle) {
+      return cachedArticle.content;
+    }
+
+    // If not found in database, fetch from URL
+    const url = `https://mp.weixin.qq.com/s/${id}`;
+    const content = await this.getHtmlByUrl(url).catch((e) => {
+      this.logger.error(`getHtmlByUrl(${url}) error: ${e.message}`);
       return '获取全文失败，请重试~';
     });
-    mpCache.set(id, content);
+
+    // Store in database cache
+    await this.prismaService.articleCache.create({
+      data: {
+        articleId: id,
+        content,
+      },
+    }).catch((e) => {
+      this.logger.error(`Failed to cache article ${id}: ${e.message}`);
+    });
+
     return content;
   }
 
@@ -341,3 +356,4 @@ export class FeedsService {
     }
   }
 }
+
