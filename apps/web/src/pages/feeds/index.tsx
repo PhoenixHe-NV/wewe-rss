@@ -16,10 +16,11 @@ import {
   useDisclosure,
   Link,
   Input,
+  Progress,
 } from '@nextui-org/react';
 import { PlusIcon } from '@web/components/PlusIcon';
 import { trpc } from '@web/utils/trpc';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import dayjs from 'dayjs';
@@ -73,6 +74,18 @@ const Feeds = () => {
   const [currentMpId, setCurrentMpId] = useState(id || '');
 
   const [limitStartDate, setLimitStartDate] = useState('2025-01-01');
+
+  // State to track if history fetching is active in the UI
+  const [isHistoryFetching, setIsHistoryFetching] = useState(false);
+  
+  // Update the history fetching state when inProgressHistoryMp changes
+  useEffect(() => {
+    if (inProgressHistoryMp && inProgressHistoryMp.id) {
+      setIsHistoryFetching(true);
+    } else {
+      setIsHistoryFetching(false);
+    }
+  }, [inProgressHistoryMp]);
 
   const handleConfirm = async () => {
     console.log('wxsLink', wxsLink);
@@ -143,6 +156,32 @@ const Feeds = () => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  // Handler for fetching or stopping history articles
+  const handleHistoryArticles = async (mpId: string) => {
+    try {
+      if (inProgressHistoryMp?.id === mpId) {
+        // Stop fetching
+        await getHistoryArticles({
+          mpId: '',
+          limit_start_date: limitStartDate || undefined,
+        });
+        toast.success('已停止获取历史文章');
+      } else {
+        // Start fetching
+        await getHistoryArticles({
+          mpId: mpId,
+          limit_start_date: limitStartDate || undefined,
+        });
+        toast.success('开始获取历史文章');
+      }
+      
+      await refetchInProgressHistoryMp();
+    } catch (error) {
+      console.error('Failed to handle history articles:', error);
+      toast.error('获取历史文章操作失败');
+    }
   };
 
   return (
@@ -249,45 +288,56 @@ const Feeds = () => {
                         placeholder="选择日期"
                       />
                     </div>
+                      
+                    {/* History Articles Controls */}
                     <div className="flex items-center gap-2">
-                      {inProgressHistoryMp?.id === currentMpInfo.id && (
-                        <span className="text-small text-primary">
-                          正在获取第{inProgressHistoryMp?.page}页...
-                        </span>
+                      {isHistoryFetching && inProgressHistoryMp?.id === currentMpInfo.id ? (
+                        <div className="flex items-center gap-3">
+                          {/* Progress info */}
+                          <div className="flex flex-col">
+                            <span className="text-sm">正在获取历史文章</span>
+                            <span className="text-sm">页数: {inProgressHistoryMp?.page || 1}</span>
+                          </div>
+                          
+                          {/* Progress bar */}
+                          <div className="w-40">
+                            <Progress
+                              size="sm"
+                              isIndeterminate={true}
+                              color="primary"
+                              className="h-5"
+                            />
+                            <div className="flex justify-end mt-1">
+                              <span className="text-xs">第 {inProgressHistoryMp?.page || 1} 页</span>
+                            </div>
+                          </div>
+                          
+                          {/* Control button */}
+                          <Button
+                            size="sm"
+                            color="danger"
+                            isDisabled={isGetHistoryArticlesLoading}
+                            onPress={() => handleHistoryArticles(currentMpInfo.id)}
+                          >
+                            停止获取
+                          </Button>
+                        </div>
+                      ) : (
+                        <Tooltip content="抓取公众号历史文章">
+                          <Button
+                            size="sm"
+                            color="primary"
+                            isDisabled={
+                              (inProgressHistoryMp?.id ? inProgressHistoryMp?.id !== currentMpInfo.id : false) ||
+                              isGetHistoryArticlesLoading ||
+                              isGetArticlesLoading
+                            }
+                            onPress={() => handleHistoryArticles(currentMpInfo.id)}
+                          >
+                            获取历史文章
+                          </Button>
+                        </Tooltip>
                       )}
-                      <Link
-                        size="sm"
-                        href="#"
-                        isDisabled={
-                          (inProgressHistoryMp?.id
-                            ? inProgressHistoryMp?.id !== currentMpInfo.id
-                            : false) ||
-                          isGetHistoryArticlesLoading ||
-                          isGetArticlesLoading
-                        }
-                        onClick={async (ev) => {
-                          ev.preventDefault();
-                          ev.stopPropagation();
-
-                          if (inProgressHistoryMp?.id === currentMpInfo.id) {
-                            await getHistoryArticles({
-                              mpId: '',
-                              limit_start_date: limitStartDate || undefined,
-                            });
-                          } else {
-                            await getHistoryArticles({
-                              mpId: currentMpInfo.id,
-                              limit_start_date: limitStartDate || undefined,
-                            });
-                          }
-
-                          await refetchInProgressHistoryMp();
-                        }}
-                      >
-                        {inProgressHistoryMp?.id === currentMpInfo.id
-                          ? `停止获取`
-                          : `获取历史文章`}
-                      </Link>
                     </div>
                     <Divider orientation="vertical" />
                   </>

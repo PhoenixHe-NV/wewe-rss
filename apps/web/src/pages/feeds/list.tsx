@@ -1,4 +1,4 @@
-import { FC, useMemo } from 'react';
+import { FC, useMemo, useState, useEffect } from 'react';
 import {
   Table,
   TableHeader,
@@ -11,16 +11,39 @@ import {
   Spinner,
   Link,
   Chip,
+  Progress,
 } from '@nextui-org/react';
 import { trpc } from '@web/utils/trpc';
 import dayjs from 'dayjs';
 import { useParams } from 'react-router-dom';
+import { toast } from 'sonner';
+
+interface CacheProgress {
+  processed: number;
+  total: number;
+  inProgress: boolean;
+  isPaused: boolean;
+  isCancelled: boolean;
+  mpId?: string;
+  mpName?: string;
+}
 
 const ArticleList: FC<{ id: string }> = ({ id }) => {
   const mpId = id || '';
   console.log('mpId', mpId);
+  
+  const [isCaching, setIsCaching] = useState(false);
+  const [cacheProgress, setCacheProgress] = useState<CacheProgress>({ 
+    processed: 0, 
+    total: 0, 
+    inProgress: false,
+    isPaused: false,
+    isCancelled: false,
+    mpId: undefined,
+    mpName: undefined
+  });
 
-  const { data, fetchNextPage, isLoading, hasNextPage } =
+  const { data, fetchNextPage, isLoading, hasNextPage, refetch: refetchArticles } =
     trpc.article.list.useInfiniteQuery(
       {
         limit: 20,
@@ -31,6 +54,152 @@ const ArticleList: FC<{ id: string }> = ({ id }) => {
       },
     );
 
+  const { mutateAsync: startCaching } = trpc.article.cacheAll.useMutation();
+  const { mutateAsync: togglePauseCaching } = trpc.article.togglePauseCaching.useMutation();
+  const { mutateAsync: cancelCaching } = trpc.article.cancelCaching.useMutation();
+  
+  // Get the total count of uncached articles
+  const { data: uncachedCountData, refetch: refetchUncachedCount } = trpc.article.getUncachedCount.useQuery(
+    { mpId },
+    { 
+      enabled: !!mpId, // Only run the query if mpId is available
+      refetchOnWindowFocus: true,
+    }
+  );
+  
+  // Always query for cache progress, not just when we're caching in this view
+  const { data: progressData } = trpc.article.getCacheProgress.useQuery(
+    { mpId },
+    { 
+      refetchInterval: 2000, // Polling every 2 seconds to check for active caching
+    }
+  );
+  
+  // Update progress and caching status when data changes
+  useEffect(() => {
+    if (progressData) {
+      setCacheProgress({
+        processed: progressData.processed,
+        total: progressData.total,
+        inProgress: progressData.inProgress,
+        isPaused: progressData.isPaused,
+        isCancelled: progressData.isCancelled,
+        mpId: progressData.mpId,
+        mpName: progressData.mpName
+      });
+      
+      // Set caching flag based on progress status
+      if (progressData.inProgress && !isCaching) {
+        setIsCaching(true);
+      } else if (!progressData.inProgress && isCaching) {
+        setIsCaching(false);
+        // Refetch data instead of refreshing the whole page
+        refetchArticles();
+        refetchUncachedCount();
+      }
+    }
+  }, [progressData, isCaching, refetchArticles, refetchUncachedCount]);
+
+  const handleCacheAll = async () => {
+    // Only allow caching if an mpId is specified
+    if (!mpId) {
+      console.error('Cannot cache articles: No specific media platform ID provided');
+      toast?.error('请先选择一个特定的公众号，再进行缓存操作');
+      return;
+    }
+
+    try {
+      setIsCaching(true);
+      console.log('Starting cache for mpId:', mpId);
+      
+      // Make sure mpId is passed correctly to ensure only caching specific articles
+      const result = await startCaching({ mpId });
+      
+      setCacheProgress({
+        processed: 0,
+        total: result.total,
+        inProgress: true,
+        isPaused: false,
+        isCancelled: false,
+        mpId: mpId,
+        mpName: undefined
+      });
+      
+      // Refresh the uncached count after caching starts
+      refetchUncachedCount();
+    } catch (error) {
+      console.error('Failed to start caching:', error);
+      setIsCaching(false);
+    }
+  };
+
+  const handleTogglePause = async () => {
+    // Get the current pause state for the toast message
+    const currentlyPaused = cacheProgress.isPaused;
+    
+    try {
+      console.log('Before toggle - Current isPaused state:', currentlyPaused);
+      
+      const result = await togglePauseCaching({ mpId });
+      
+      console.log('Server returned isPaused:', result.isPaused);
+      
+      // Update the local state immediately for better UI responsiveness
+      setCacheProgress(prev => {
+        const newState = {
+          ...prev,
+          isPaused: result.isPaused
+        };
+        console.log('Updated local state - isPaused:', newState.isPaused);
+        return newState;
+      });
+      
+      // Show toast based on the NEW state, not the previous state
+      if (result.isPaused) {
+        toast.success('缓存已暂停');
+      } else {
+        toast.success('缓存已恢复');
+      }
+    } catch (error) {
+      console.error('Failed to toggle pause state:', error);
+      toast.error('切换暂停状态失败');
+    }
+  };
+
+  const handleCancelCaching = async () => {
+    if (!cacheProgress.isPaused) {
+      toast.error('只能在暂停状态下取消缓存');
+      return;
+    }
+    
+    try {
+      const result = await cancelCaching({ mpId });
+      
+      if (result.success) {
+        setCacheProgress(prev => ({
+          ...prev,
+          inProgress: false,
+          isCancelled: true
+        }));
+        
+        toast.success('缓存已取消');
+        
+        // Give a short delay before resetting the UI
+        setTimeout(() => {
+          setIsCaching(false);
+          // Refetch data instead of refreshing the whole page
+          refetchArticles();
+          refetchUncachedCount();
+        }, 1500);
+      } else {
+        toast.error('取消缓存失败');
+      }
+    } catch (error) {
+      console.error('Failed to cancel caching:', error);
+      toast.error('取消缓存失败');
+    }
+  };
+
   const items = useMemo(() => {
     const items = data
       ? data.pages.reduce<any[]>((acc, page) => [...acc, ...page.items], [])
@@ -38,9 +207,89 @@ const ArticleList: FC<{ id: string }> = ({ id }) => {
 
     return items;
   }, [data]);
+  
+  // Use the total count from the server for the uncached count
+  const totalUncachedCount = useMemo(() => {
+    return uncachedCountData?.count || 0;
+  }, [uncachedCountData]);
+  
+  // Also calculate the visible uncached count (for debugging/comparison)
+  const visibleUncachedCount = useMemo(() => {
+    return items.filter(item => !item.isCached).length;
+  }, [items]);
 
   return (
     <div>
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-xl font-bold">文章列表</h2>
+        <div className="flex items-center gap-2">
+          {isCaching && (
+            <div className="flex items-center gap-3">
+              {/* Account info & progress percentage */}
+              <div className="flex flex-col">
+                {cacheProgress.mpName ? (
+                  <span className="text-sm">正在缓存: {cacheProgress.mpName}</span>
+                ) : cacheProgress.mpId ? (
+                  <span className="text-sm">正在缓存 ID: {cacheProgress.mpId}</span>
+                ) : (
+                  <span className="text-sm">缓存进度</span>
+                )}
+                <div className="flex items-center">
+                  <span className="text-sm">进度: {cacheProgress.processed}/{cacheProgress.total}</span>
+                  {cacheProgress.isPaused && (
+                    <span className="text-xs text-warning ml-2">已暂停</span>
+                  )}
+                </div>
+              </div>
+              
+              {/* Progress bar */}
+              <div className="w-40">
+                <Progress 
+                  value={(cacheProgress.processed / cacheProgress.total) * 100} 
+                  color={cacheProgress.isPaused ? "warning" : "success"}
+                  size="sm"
+                  isStriped={true}
+                  isIndeterminate={cacheProgress.total === 0}
+                  className="h-5"
+                />
+                <div className="flex justify-end mt-1">
+                  <span className="text-xs">{Math.round((cacheProgress.processed / cacheProgress.total) * 100)}%</span>
+                </div>
+              </div>
+              
+              {/* Control buttons */}
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  color={cacheProgress.isPaused ? "success" : "warning"}
+                  onPress={handleTogglePause}
+                >
+                  {cacheProgress.isPaused ? "恢复缓存" : "暂停缓存"}
+                </Button>
+                {cacheProgress.isPaused && (
+                  <Button
+                    size="sm"
+                    color="danger"
+                    onPress={handleCancelCaching}
+                  >
+                    取消缓存
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+          <Button
+            color="primary"
+            onPress={handleCacheAll}
+            isLoading={isCaching}
+            isDisabled={isCaching || totalUncachedCount === 0}
+          >
+            缓存全部文章 {totalUncachedCount > 0 && `(${totalUncachedCount})`}
+            {!isCaching && totalUncachedCount > 0 && <span className="text-xs ml-1">(从新到旧)</span>}
+          </Button>
+        </div>
+      </div>
+      
       <Table
         classNames={{
           base: 'h-full',
