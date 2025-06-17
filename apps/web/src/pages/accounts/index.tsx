@@ -22,8 +22,24 @@ import { StatusDropdown } from '@web/components/StatusDropdown';
 import { trpc } from '@web/utils/trpc';
 import { statusMap } from '@web/constants';
 import { useEffect, useState } from 'react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 
 const AccountPage = () => {
+  // Read the feedId from query params to maintain state when returning to feeds
+  const [searchParams] = useSearchParams();
+  const feedId = searchParams.get('feedId');
+  const navigate = useNavigate();
+  
+  // Function to navigate to feeds page with the retained feedId
+  const goToFeeds = (customFeedId?: string) => {
+    const targetFeedId = customFeedId || feedId;
+    if (targetFeedId) {
+      navigate(`/feeds?feedId=${targetFeedId}`);
+    } else {
+      navigate('/feeds');
+    }
+  };
+
   const { isOpen, onOpen, onClose, onOpenChange } = useDisclosure();
   const [count, setCount] = useState(0);
 
@@ -83,7 +99,18 @@ const AccountPage = () => {
   return (
     <div>
       <div className="flex justify-between m-4">
-        <div className="font-bold">共{data?.items.length || 0}个账号</div>
+        <div className="flex items-center gap-4">
+          <div className="font-bold">共{data?.items.length || 0}个账号</div>
+          {feedId && (
+            <Button 
+              size="sm" 
+              variant="light" 
+              onPress={() => goToFeeds()}
+            >
+              返回公众号源 {feedId && '(保持选中状态)'}
+            </Button>
+          )}
+        </div>
         <Button
           onPress={() => {
             onOpen();

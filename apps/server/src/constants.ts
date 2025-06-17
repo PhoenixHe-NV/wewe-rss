@@ -13,4 +13,4 @@ export const feedMimeTypeMap = {
   json: 'application/feed+json; charset=utf-8',
 } as const;
 
-export const defaultCount = 20;
+export const defaultCount = 1000;

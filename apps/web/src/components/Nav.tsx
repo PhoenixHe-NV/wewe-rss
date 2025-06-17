@@ -12,7 +12,7 @@ import { ThemeSwitcher } from './ThemeSwitcher';
 import { GitHubIcon } from './GitHubIcon';
 import { useLocation } from 'react-router-dom';
 import { appVersion, serverOriginUrl } from '@web/utils/env';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 
 const navbarItemLink = [
   {
@@ -30,8 +30,12 @@ const navbarItemLink = [
 ];
 
 const Nav = () => {
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
   const [releaseVersion, setReleaseVersion] = useState(appVersion);
+  
+  // Get the current selectedFeedId from search params if it exists
+  const searchParams = useMemo(() => new URLSearchParams(search), [search]);
+  const currentFeedId = searchParams.get('feedId') || '';
 
   useEffect(() => {
     fetch('https://api.github.com/repos/cooderl/wewe-rss/releases/latest')
@@ -86,12 +90,26 @@ const Nav = () => {
         </Tooltip>
         <NavbarContent className="hidden sm:flex gap-4" justify="center">
           {navbarItemLink.map((item) => {
+            // Always include the feedId query parameter if it exists
+            let href = item.href;
+            if (currentFeedId) {
+              // For feeds page, we want to keep the base /feeds path and the feedId will be used internally
+              // For other pages like accounts, we need to add the feedId as query param
+              href = item.href === '/feeds' ? 
+                `/feeds` : 
+                `${item.href}?feedId=${currentFeedId}`;
+            }
+            
             return (
               <NavbarItem
                 isActive={pathname.startsWith(item.href)}
                 key={item.href}
               >
-                <Link color="foreground" href={item.href}>
+                <Link 
+                  color="foreground" 
+                  href={href}
+                  title={currentFeedId ? `保持选中的公众号 (${currentFeedId})` : ''}
+                >
                   {item.name}
                 </Link>
               </NavbarItem>

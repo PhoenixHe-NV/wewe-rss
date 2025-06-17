@@ -41,7 +41,6 @@ const ArticleList: FC<{ id: string }> = ({ id }) => {
   console.log('mpId', mpId);
   
   const [isCaching, setIsCaching] = useState(false);
-  const { isOpen, onOpen, onClose } = useDisclosure();
   const [startDate, setStartDate] = useState<string>("2024-01-01");
   const [endDate, setEndDate] = useState<string>("2025-01-01");
   
@@ -72,7 +71,7 @@ const ArticleList: FC<{ id: string }> = ({ id }) => {
   
   // Get the total count of uncached articles
   const { data: uncachedCountData, refetch: refetchUncachedCount } = trpc.article.getUncachedCount.useQuery(
-    { mpId },
+    { mpId, startDate, endDate },
     { 
       enabled: !!mpId, // Only run the query if mpId is available
       refetchOnWindowFocus: true,
@@ -135,7 +134,7 @@ const ArticleList: FC<{ id: string }> = ({ id }) => {
       setIsCaching(true);
       console.log('Starting cache for mpId:', mpId, 'with date range:', { startDate, endDate });
       
-      // Pass date filter parameters to the API - we always have values now (defaults if not set by user)
+      // Pass date filter parameters to the API
       const result = await startCaching({ 
         mpId, 
         startDate, 
@@ -153,7 +152,7 @@ const ArticleList: FC<{ id: string }> = ({ id }) => {
       });
       
       // Show toast with date range information
-      toast.success(`已开始缓存文章，时间范围: ${startDate || '2024-01-01'} 至 ${endDate || '2025-01-01'}`);
+      toast.success(`已开始缓存文章，时间范围: ${startDate} 至 ${endDate}`);
       
       // Refresh the uncached count after caching starts
       refetchUncachedCount();
@@ -253,43 +252,6 @@ const ArticleList: FC<{ id: string }> = ({ id }) => {
 
   return (
     <div>
-      <Modal isOpen={isOpen} onClose={onClose} placement="center">
-        <ModalContent>
-          <ModalHeader className="flex flex-col gap-1">设置缓存文章日期范围</ModalHeader>
-          <ModalBody>
-            <div className="flex flex-col gap-4">
-              <Input
-                label="开始日期"
-                placeholder="YYYY-MM-DD"
-                type="date" 
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-              />
-              <Input
-                label="结束日期"
-                placeholder="YYYY-MM-DD"
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-              />
-              <p className="text-xs text-gray-500">
-                默认缓存2024年1月1日至2025年1月1日期间的文章。
-              </p>
-            </div>
-          </ModalBody>
-          <ModalFooter>
-            <Button color="danger" variant="light" onPress={onClose}>
-              取消
-            </Button>
-            <Button color="primary" onPress={() => {
-              handleCacheAll();
-              onClose();
-            }}>
-              开始缓存
-            </Button>
-          </ModalFooter>
-        </ModalContent>
-      </Modal>
       
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-xl font-bold">文章列表</h2>
@@ -350,12 +312,37 @@ const ArticleList: FC<{ id: string }> = ({ id }) => {
             </div>
           )}
           {!isCaching && (
-            <div className="flex items-center mr-4">
-              <Chip color="secondary" variant="flat" size="sm">
-                日期筛选: {startDate ? `${startDate}起` : '2024-01-01起'}
-                {' ~ '}
-                {endDate ? `${endDate}止` : '2025-01-01止'}
-              </Chip>
+            <div className="flex items-center mr-4 gap-2">
+              <div className="flex items-center">
+                <Input
+                  label="开始日期"
+                  placeholder="YYYY-MM-DD"
+                  type="date" 
+                  value={startDate}
+                  onChange={(e) => {
+                    setStartDate(e.target.value);
+                    // Refresh uncached count with new date range
+                    refetchUncachedCount();
+                  }}
+                  className="w-40"
+                  size="sm"
+                />
+              </div>
+              <div className="flex items-center">
+                <Input
+                  label="结束日期"
+                  placeholder="YYYY-MM-DD"
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => {
+                    setEndDate(e.target.value);
+                    // Refresh uncached count with new date range
+                    refetchUncachedCount();
+                  }}
+                  className="w-40"
+                  size="sm"
+                />
+              </div>
               <Button
                 size="sm"
                 variant="light"
@@ -363,8 +350,8 @@ const ArticleList: FC<{ id: string }> = ({ id }) => {
                   setStartDate("2024-01-01");
                   setEndDate("2025-01-01");
                   toast.info("已重置为默认日期范围");
+                  refetchUncachedCount();
                 }}
-                className="ml-2"
               >
                 重置
               </Button>
@@ -372,12 +359,11 @@ const ArticleList: FC<{ id: string }> = ({ id }) => {
           )}
           <Button
             color="primary"
-            onPress={onOpen}
+            onPress={handleCacheAll}
             isLoading={isCaching}
             isDisabled={isCaching || totalUncachedCount === 0}
           >
             缓存文章 {totalUncachedCount > 0 && `(${totalUncachedCount})`}
-            {!isCaching && totalUncachedCount > 0 && <span className="text-xs ml-1">(筛选时间范围)</span>}
           </Button>
         </div>
       </div>
@@ -418,7 +404,7 @@ const ArticleList: FC<{ id: string }> = ({ id }) => {
           items={items || []}
           loadingContent={<Spinner />}
         >
-          {(item) => (
+          {(item: ArticleItem) => (
             <TableRow key={item.id}>
               {(columnKey) => {
                 let value = getKeyValue(item, columnKey);

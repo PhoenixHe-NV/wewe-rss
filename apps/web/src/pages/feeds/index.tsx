@@ -21,14 +21,34 @@ import {
 import { PlusIcon } from '@web/components/PlusIcon';
 import { trpc } from '@web/utils/trpc';
 import { useMemo, useState, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import dayjs from 'dayjs';
 import { serverOriginUrl } from '@web/utils/env';
 import ArticleList from './list';
 
+// Constants for localStorage keys
+const STORAGE_KEY_SELECTED_FEED = 'wewe-rss-selected-feed';
+
 const Feeds = () => {
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
+  
+  // Check both URL param, query param, and localStorage for feedId
+  const queryFeedId = searchParams.get('feedId');
+  
+  // Function to get feedId from localStorage
+  const getStoredFeedId = () => {
+    try {
+      return localStorage.getItem(STORAGE_KEY_SELECTED_FEED) || '';
+    } catch (e) {
+      console.error('Failed to read from localStorage:', e);
+      return '';
+    }
+  };
+  
+  // Get feedId with priority: URL param > query param > localStorage > empty string
+  const initialFeedId = id || queryFeedId || getStoredFeedId() || '';
 
   const { isOpen, onOpen, onOpenChange, onClose } = useDisclosure();
   const { refetch: refetchFeedList, data: feedData } = trpc.feed.list.useQuery(
@@ -71,7 +91,7 @@ const Feeds = () => {
 
   const [wxsLink, setWxsLink] = useState('');
 
-  const [currentMpId, setCurrentMpId] = useState(id || '');
+  const [currentMpId, setCurrentMpId] = useState(initialFeedId);
 
   const [limitStartDate, setLimitStartDate] = useState('2024-01-01');
 
@@ -86,6 +106,35 @@ const Feeds = () => {
       setIsHistoryFetching(false);
     }
   }, [inProgressHistoryMp]);
+
+  // Update currentMpId when URL parameters change and update URL
+  useEffect(() => {
+    const idFromParams = id || searchParams.get('feedId') || '';
+    
+    if (idFromParams !== currentMpId) {
+      console.log(`Updating currentMpId from ${currentMpId} to ${idFromParams}`);
+      setCurrentMpId(idFromParams);
+      
+      // Save to localStorage
+      try {
+        if (idFromParams) {
+          localStorage.setItem(STORAGE_KEY_SELECTED_FEED, idFromParams);
+        } else {
+          // If no feed selected, remove from localStorage
+          localStorage.removeItem(STORAGE_KEY_SELECTED_FEED);
+        }
+      } catch (e) {
+        console.error('Failed to save to localStorage:', e);
+      }
+      
+      // When the feedId comes from the query parameter, update the URL structure
+      // to be consistent with direct navigation
+      if (!id && idFromParams) {
+        // Only update if we need to - avoid infinite loops
+        navigate(`/feeds?feedId=${idFromParams}`, { replace: true });
+      }
+    }
+  }, [id, searchParams, currentMpId, navigate]);
 
   const handleConfirm = async () => {
     console.log('wxsLink', wxsLink);
@@ -206,7 +255,30 @@ const Feeds = () => {
             <Listbox
               aria-label="订阅源"
               emptyContent="暂无订阅"
-              onAction={(key) => setCurrentMpId(key as string)}
+              onAction={(key) => {
+                const feedId = key as string;
+                setCurrentMpId(feedId);
+                
+                // Save to localStorage
+                try {
+                  if (feedId) {
+                    localStorage.setItem(STORAGE_KEY_SELECTED_FEED, feedId);
+                  } else {
+                    localStorage.removeItem(STORAGE_KEY_SELECTED_FEED);
+                  }
+                } catch (e) {
+                  console.error('Failed to save to localStorage:', e);
+                }
+                
+                // Update URL with the selected feedId
+                if (feedId) {
+                  // Use navigate instead of setSearchParams to update the URL properly
+                  navigate(`/feeds?feedId=${feedId}`, { replace: true });
+                } else {
+                  // Remove the parameter if no feed is selected
+                  navigate('/feeds', { replace: true });
+                }
+              }}
             >
               <ListboxSection showDivider>
                 <ListboxItem
@@ -229,7 +301,19 @@ const Feeds = () => {
                       }
                       key={item.id}
                       startContent={<Avatar src={item.mpCover}></Avatar>}
-                      onSelect={() => setCurrentMpId(item.id)}
+                      onSelect={() => {
+                        setCurrentMpId(item.id);
+                        
+                        // Save to localStorage
+                        try {
+                          localStorage.setItem(STORAGE_KEY_SELECTED_FEED, item.id);
+                        } catch (e) {
+                          console.error('Failed to save to localStorage:', e);
+                        }
+                        
+                        // Update URL with the selected feedId using navigate
+                        navigate(`/feeds?feedId=${item.id}`, { replace: true });
+                      }}
                     >
                       {item.mpName}
                     </ListboxItem>
@@ -275,73 +359,73 @@ const Feeds = () => {
                   </Link>
                 </Tooltip>
                 <Divider orientation="vertical" />
-                {currentMpInfo.hasHistory === 1 && (
-                  <>
-                    <div className="flex items-center gap-2">
-                      <div className="text-small">截止</div>
-                      <Input
-                        type="date"
-                        size="sm"
-                        className="w-36"
-                        value={limitStartDate}
-                        onChange={(e) => { console.log(e.target.value); setLimitStartDate(e.target.value)}}
-                        placeholder="选择日期"
-                      />
-                    </div>
-                      
-                    {/* History Articles Controls */}
-                    <div className="flex items-center gap-2">
-                      {isHistoryFetching && inProgressHistoryMp?.id === currentMpInfo.id ? (
-                        <div className="flex items-center gap-3">
-                          {/* Progress info */}
-                          <div className="flex flex-col">
-                            <span className="text-sm">正在获取历史文章</span>
-                            <span className="text-sm">页数: {inProgressHistoryMp?.page || 1}</span>
-                          </div>
-                          
-                          {/* Progress bar */}
-                          <div className="w-40">
-                            <Progress
-                              size="sm"
-                              isIndeterminate={true}
-                              color="primary"
-                              className="h-5"
-                            />
-                            <div className="flex justify-end mt-1">
-                              <span className="text-xs">第 {inProgressHistoryMp?.page || 1} 页</span>
-                            </div>
-                          </div>
-                          
-                          {/* Control button */}
-                          <Button
-                            size="sm"
-                            color="danger"
-                            isDisabled={isGetHistoryArticlesLoading}
-                            onPress={() => handleHistoryArticles(currentMpInfo.id)}
-                          >
-                            停止获取
-                          </Button>
+                {/* Always show history article controls regardless of hasHistory flag */}
+                <>
+                  <div className="flex items-center gap-2">
+                    <div className="text-small">截止</div>
+                    <Input
+                      type="date"
+                      size="sm"
+                      className="w-36"
+                      value={limitStartDate}
+                      onChange={(e) => { console.log(e.target.value); setLimitStartDate(e.target.value)}}
+                      placeholder="选择日期"
+                    />
+                  </div>
+                    
+                  {/* History Articles Controls */}
+                  <div className="flex items-center gap-2">
+                    {isHistoryFetching && inProgressHistoryMp?.id === currentMpInfo.id ? (
+                      <div className="flex items-center gap-3">
+                        {/* Progress info */}
+                        <div className="flex flex-col">
+                          <span className="text-sm">正在获取历史文章</span>
+                          <span className="text-sm">页数: {inProgressHistoryMp?.page || 1}</span>
                         </div>
-                      ) : (
-                        <Tooltip content="抓取公众号历史文章">
-                          <Button
+                        
+                        {/* Progress bar */}
+                        <div className="w-40">
+                          <Progress
                             size="sm"
+                            isIndeterminate={true}
                             color="primary"
-                            isDisabled={
-                              (inProgressHistoryMp?.id ? inProgressHistoryMp?.id !== currentMpInfo.id : false) ||
-                              isGetHistoryArticlesLoading ||
-                              isGetArticlesLoading
-                            }
-                            onPress={() => handleHistoryArticles(currentMpInfo.id)}
-                          >
-                            获取历史文章
-                          </Button>
-                        </Tooltip>
-                      )}
-                    </div>
-                    <Divider orientation="vertical" />
-                  </>
-                )}
+                            className="h-5"
+                          />
+                          <div className="flex justify-end mt-1">
+                            <span className="text-xs">第 {inProgressHistoryMp?.page || 1} 页</span>
+                          </div>
+                        </div>
+                        
+                        {/* Control button */}
+                        <Button
+                          size="sm"
+                          color="danger"
+                          isDisabled={isGetHistoryArticlesLoading}
+                          onPress={() => handleHistoryArticles(currentMpInfo.id)}
+                        >
+                          停止获取
+                        </Button>
+                      </div>
+                    ) : (
+                      <Tooltip content="抓取公众号历史文章">
+                        <Button
+                          size="sm"
+                          color="primary"
+                          isDisabled={
+                            (inProgressHistoryMp?.id ? inProgressHistoryMp?.id !== currentMpInfo.id : false) ||
+                            isGetHistoryArticlesLoading ||
+                            isGetArticlesLoading
+                          }
+                          onPress={() => handleHistoryArticles(currentMpInfo.id)}
+                        >
+                          获取历史文章
+                        </Button>
+                      </Tooltip>
+                    )}
+                  </div>
+                  <Divider orientation="vertical" />
+                </>
+                
 
                 <Tooltip content="启用服务端定时更新">
                   <div>
@@ -367,14 +451,26 @@ const Feeds = () => {
                     href="#"
                     color="danger"
                     size="sm"
-                    isDisabled={isDeleteFeedLoading}
-                    onClick={async (ev) => {
+                    isDisabled={isDeleteFeedLoading}                      onClick={async (ev) => {
                       ev.preventDefault();
                       ev.stopPropagation();
 
                       if (window.confirm('确定删除吗？')) {
                         await deleteFeed(currentMpInfo.id);
-                        navigate('/feeds');
+                        
+                        // Remove from localStorage if the deleted feed is currently selected
+                        try {
+                          const storedFeedId = localStorage.getItem(STORAGE_KEY_SELECTED_FEED);
+                          if (storedFeedId === currentMpInfo.id) {
+                            localStorage.removeItem(STORAGE_KEY_SELECTED_FEED);
+                          }
+                        } catch (e) {
+                          console.error('Failed to access localStorage:', e);
+                        }
+                        
+                        // Clear the feedId parameter when deleting and navigate
+                        navigate('/feeds', { replace: true });
+                        
                         await refetchFeedList();
                       }
                     }}

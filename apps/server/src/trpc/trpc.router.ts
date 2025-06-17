@@ -826,20 +826,34 @@ export class TrpcRouter {
       .input(
         z.object({
           mpId: z.string(),
+          startDate: z.string().nullish(),
+          endDate: z.string().nullish(),
         }),
       )
       .query(async ({ input }) => {
         const { mpId } = input;
+        const startDate = input.startDate || '2024-01-01';
+        const endDate = input.endDate || '2025-01-01';
 
-        // Get count of all uncached articles for this MP
+        // Convert dates to UNIX timestamps (seconds since epoch)
+        const startTimestamp = Math.floor(new Date(startDate).getTime() / 1000);
+        const endTimestamp = Math.floor(new Date(endDate).getTime() / 1000);
+
+        // Get count of all uncached articles for this MP within the date range
         const count = await this.prismaService.article.count({
           where: {
             mpId,
             cache: null, // Only count articles without cache
+            publishTime: {
+              gte: startTimestamp,
+              lte: endTimestamp,
+            },
           },
         });
 
-        this.logger.log(`Total uncached articles for mpId ${mpId}: ${count}`);
+        this.logger.log(
+          `Total uncached articles for mpId ${mpId} from ${startDate} to ${endDate}: ${count}`,
+        );
 
         return { count };
       }),

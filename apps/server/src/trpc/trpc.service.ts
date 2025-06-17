@@ -171,7 +171,11 @@ export class TrpcService {
     }
   }
 
-  async refreshMpArticlesAndUpdateFeed(mpId: string, page = 1, limit_start_date?: Date) {
+  async refreshMpArticlesAndUpdateFeed(
+    mpId: string,
+    page = 1,
+    limit_start_date?: Date,
+  ) {
     const articles = await this.getMpArticles(mpId, page);
 
     if (articles.length > 0) {
@@ -210,7 +214,7 @@ export class TrpcService {
     }
 
     // 如果文章数量小于 defaultCount，则认为没有更多历史文章
-    const hasHistory = articles.length < defaultCount ? 0 : 1;
+    const hasHistory = articles.length;
 
     await this.prismaService.feed.update({
       where: { id: mpId },
@@ -223,7 +227,21 @@ export class TrpcService {
     let hasOlderArticle = false;
     if (limit_start_date) {
       const limitTimestamp = Math.floor(limit_start_date.getTime() / 1000);
-      hasOlderArticle = articles.some(article => article.publishTime < limitTimestamp);
+      hasOlderArticle = articles.some(
+        (article) => article.publishTime < limitTimestamp,
+      );
+      if (hasOlderArticle) {
+        const olderArticles = articles.filter(
+          (article) => article.publishTime < limitTimestamp,
+        );
+        this.logger.log(
+          `refreshMpArticlesAndUpdateFeed(${mpId}) found older articles: ${olderArticles.length}. Last article publish time: ${dayjs(
+            articles[articles.length - 1].publishTime * 1e3,
+          ).format('YYYY-MM-DD HH:mm:ss')} title: ${
+            articles[articles.length - 1].title
+          }`,
+        );
+      }
     }
 
     return { hasHistory, hasOlderArticle };
@@ -250,24 +268,26 @@ export class TrpcService {
     }
 
     try {
-      const feed = await this.prismaService.feed.findFirstOrThrow({
-        where: {
-          id: mpId,
-        },
-      });
-
-      // 如果完整同步过历史文章，则直接返回
-      if (feed.hasHistory === 0) {
-        this.logger.log(`getHistoryMpArticles(${mpId}) has no history`);
-        return;
-      }
+      // We don't need to check hasHistory flag anymore, always allow fetching history articles
+      // Keeping this commented code for reference
+      // const feed = await this.prismaService.feed.findFirstOrThrow({
+      //   where: {
+      //     id: mpId,
+      //   },
+      // });
+      //
+      // if (feed.hasHistory === 0) {
+      //   this.logger.log(`getHistoryMpArticles(${mpId}) has no history`);
+      //   return;
+      // }
 
       const total = await this.prismaService.article.count({
         where: {
           mpId,
         },
       });
-      this.inProgressHistoryMp.page = Math.ceil(total / defaultCount);
+      // this.inProgressHistoryMp.page = Math.ceil(total / defaultCount);
+      this.inProgressHistoryMp.page = total > 0 ? 2 : 1;
 
       // 最多尝试一千次
       let i = 1e3;
@@ -278,18 +298,13 @@ export class TrpcService {
           );
           break;
         }
-        const { hasHistory, hasOlderArticle } = await this.refreshMpArticlesAndUpdateFeed(
-          mpId,
-          this.inProgressHistoryMp.page,
-          limit_start_date,
-        );
-        if (hasHistory < 1) {
-          this.logger.log(
-            `getHistoryMpArticles(${mpId}) has no history, break`,
+        const { hasOlderArticle, hasHistory } =
+          await this.refreshMpArticlesAndUpdateFeed(
+            mpId,
+            this.inProgressHistoryMp.page,
+            limit_start_date,
           );
-          break;
-        }
-        if (hasOlderArticle) {
+        if (hasHistory < 1 || hasOlderArticle) {
           this.logger.log(
             `getHistoryMpArticles(${mpId}) reached date limit ${limit_start_date?.toISOString()}, break`,
           );

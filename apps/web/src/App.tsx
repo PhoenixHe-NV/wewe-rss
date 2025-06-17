@@ -14,7 +14,8 @@ function App() {
           <Routes>
             <Route path="/" element={<BaseLayout />}>
               <Route index element={<Feeds />} />
-              <Route path="/feeds/:id?" element={<Feeds />} />
+              <Route path="/feeds" element={<Feeds />} />
+              <Route path="/feeds/:id" element={<Feeds />} />
               <Route path="/accounts" element={<Accounts />} />
               <Route path="/login" element={<Login />} />
             </Route>
