@@ -153,7 +153,7 @@ export class TrpcRouter {
               }
             : undefined,
           orderBy: {
-            createdAt: 'asc',
+            mpName: 'asc', // Sort by mpName for pinyin order
           },
         });
         let nextCursor: typeof cursor | undefined = undefined;
@@ -568,7 +568,7 @@ export class TrpcRouter {
                   this.logger.error(
                     `[${processedCount + 1}/${totalCount}] Error fetching HTML from ${url}: ${e.message}`,
                   );
-                  
+
                   // If this is the "暂无可用读书账号" error, propagate it
                   if (e.message?.includes('暂无可用读书账号')) {
                     // Update the progress map to include error information
@@ -577,11 +577,11 @@ export class TrpcRouter {
                       progress.hasAccountError = true;
                       progressMap.set(progressKey, progress);
                     }
-                    
+
                     // Throw the error to stop the caching process
                     throw e;
                   }
-                  
+
                   content = '获取全文失败，请重试~';
                 }
 
@@ -974,7 +974,7 @@ export class TrpcRouter {
           );
           throw new Error(`Failed to get available account: 暂无可用读书账号!`);
         }
-        
+
         // For other account errors, fall back to unauthenticated request
         this.logger.warn(
           `Failed to get available account: ${accountError.message}. Falling back to unauthenticated request.`,

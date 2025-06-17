@@ -73,7 +73,7 @@ const Feeds = () => {
 
   const [currentMpId, setCurrentMpId] = useState(id || '');
 
-  const [limitStartDate, setLimitStartDate] = useState('2025-01-01');
+  const [limitStartDate, setLimitStartDate] = useState('2024-01-01');
 
   // State to track if history fetching is active in the UI
   const [isHistoryFetching, setIsHistoryFetching] = useState(false);
