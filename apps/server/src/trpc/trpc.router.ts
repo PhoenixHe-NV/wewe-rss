@@ -857,6 +857,51 @@ export class TrpcRouter {
 
         return { count };
       }),
+
+    getMonthlyHistogram: this.trpcService.protectedProcedure
+      .input(
+        z.object({
+          mpId: z.string(),
+        }),
+      )
+      .query(async ({ input }) => {
+        const { mpId } = input;
+        
+        // Aggregate articles by month
+        const articles = await this.prismaService.article.findMany({
+          where: {
+            mpId,
+          },
+          select: {
+            publishTime: true,
+          },
+        });
+        
+        // Process the data to create a histogram
+        const monthlyHistogram = articles.reduce(
+          (acc, article) => {
+            const date = new Date(article.publishTime * 1000);
+            const yearMonth = `${date.getFullYear()}-${String(
+              date.getMonth() + 1,
+            ).padStart(2, '0')}`;
+            
+            if (!acc[yearMonth]) {
+              acc[yearMonth] = 0;
+            }
+            
+            acc[yearMonth]++;
+            return acc;
+          },
+          {} as Record<string, number>,
+        );
+        
+        // Convert to array and sort by year-month
+        const result = Object.entries(monthlyHistogram)
+          .map(([month, count]) => ({ month, count }))
+          .sort((a, b) => a.month.localeCompare(b.month));
+        
+        return result;
+      }),
   });
 
   platformRouter = this.trpcService.router({

@@ -12,11 +12,6 @@ import {
   Link,
   Chip,
   Progress,
-  Modal,
-  ModalContent,
-  ModalHeader,
-  ModalBody,
-  ModalFooter,
   useDisclosure,
   Input,
 } from '@nextui-org/react';
@@ -24,6 +19,7 @@ import { trpc } from '@web/utils/trpc';
 import dayjs from 'dayjs';
 import { useParams } from 'react-router-dom';
 import { toast } from 'sonner';
+import MonthlyHistogram from './MonthlyHistogram';
 
 interface CacheProgress {
   processed: number;
@@ -43,6 +39,19 @@ const ArticleList: FC<{ id: string }> = ({ id }) => {
   const [isCaching, setIsCaching] = useState(false);
   const [startDate, setStartDate] = useState<string>("2024-01-01");
   const [endDate, setEndDate] = useState<string>("2025-01-01");
+  
+  // 添加月度直方图Modal相关状态
+  const { isOpen: isHistogramOpen, onOpen: onHistogramOpen, onClose: onHistogramClose } = useDisclosure();
+  
+  // 历史文章月度统计数据获取
+  const { data: monthlyHistogramData, isLoading: isHistogramLoading, refetch: refetchHistogram } = 
+    trpc.article.getMonthlyHistogram.useQuery(
+      { mpId },
+      { 
+        enabled: false, // 不自动加载，只在需要时手动获取
+        refetchOnWindowFocus: false 
+      }
+    );
   
   const [cacheProgress, setCacheProgress] = useState<CacheProgress>({
     processed: 0, 
@@ -254,7 +263,23 @@ const ArticleList: FC<{ id: string }> = ({ id }) => {
     <div>
       
       <div className="flex justify-between items-center mb-4">
-        <h2 className="text-xl font-bold">文章列表</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-xl font-bold">文章列表</h2>
+          {mpId && mpId !== '' && (
+            <Button 
+              size="sm" 
+              variant="light" 
+              color="secondary"
+              onPress={() => {
+                onHistogramOpen();
+                // 确保打开Modal时有最新数据
+                refetchHistogram();
+              }}
+            >
+              月度统计图
+            </Button>
+          )}
+        </div>
         <div className="flex items-center gap-2">
           {isCaching && (
             <div className="flex items-center gap-3">
@@ -448,6 +473,15 @@ const ArticleList: FC<{ id: string }> = ({ id }) => {
           )}
         </TableBody>
       </Table>
+      
+      {/* 月度文章统计直方图 */}
+      <MonthlyHistogram
+        isOpen={isHistogramOpen}
+        onClose={onHistogramClose}
+        isLoading={isHistogramLoading}
+        data={monthlyHistogramData}
+        mpId={mpId}
+      />
     </div>
   );
 };
