@@ -146,20 +146,30 @@ export class FeedsService {
 
     // If not found in database, fetch from URL
     const url = `https://mp.weixin.qq.com/s/${id}`;
-    const content = await this.getHtmlByUrl(url).catch((e) => {
+    let content = await this.getHtmlByUrl(url).catch((e) => {
       this.logger.error(`getHtmlByUrl(${url}) error: ${e.message}`);
       return '获取全文失败，请重试~';
     });
 
-    // Store in database cache
-    await this.prismaService.articleCache.create({
-      data: {
-        articleId: id,
-        content,
-      },
-    }).catch((e) => {
-      this.logger.error(`Failed to cache article ${id}: ${e.message}`);
-    });
+    // Check if content contains error message or is an error message
+    const isFailed =
+      content.includes('当前环境异常') || content === '获取全文失败，请重试~';
+    if (isFailed) {
+      this.logger.error(`抓取失败: ${url}`);
+      content = '获取全文失败，请重试~';
+    } else {
+      // Only store in database cache if fetch was successful
+      await this.prismaService.articleCache
+        .create({
+          data: {
+            articleId: id,
+            content,
+          },
+        })
+        .catch((e) => {
+          this.logger.error(`Failed to cache article ${id}: ${e.message}`);
+        });
+    }
 
     return content;
   }
@@ -356,4 +366,3 @@ export class FeedsService {
     }
   }
 }
-
