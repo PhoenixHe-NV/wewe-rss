@@ -45,6 +45,10 @@ export const TrpcProvider: React.FC<{ children: React.ReactNode }> = ({
                   });
 
                   handleNoAuth();
+                } else if (error.message?.includes('暂无可用读书账号')) {
+                  toast.error('暂无可用读书账号!', {
+                    description: '系统暂时没有可用的读书账号，请稍后再试',
+                  });
                 } else {
                   toast.error('请求失败!', {
                     description: error.message,
@@ -62,6 +66,10 @@ export const TrpcProvider: React.FC<{ children: React.ReactNode }> = ({
                     description: error.message,
                   });
                   handleNoAuth();
+                } else if (error.message?.includes('暂无可用读书账号')) {
+                  toast.error('暂无可用读书账号!', {
+                    description: '系统暂时没有可用的读书账号，请稍后再试',
+                  });
                 } else {
                   toast.error('请求失败!', {
                     description: error.message,

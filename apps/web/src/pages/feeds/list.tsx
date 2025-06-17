@@ -31,6 +31,7 @@ interface CacheProgress {
   inProgress: boolean;
   isPaused: boolean;
   isCancelled: boolean;
+  hasAccountError?: boolean;
   mpId?: string;
   mpName?: string;
 }
@@ -95,9 +96,18 @@ const ArticleList: FC<{ id: string }> = ({ id }) => {
         inProgress: progressData.inProgress,
         isPaused: progressData.isPaused,
         isCancelled: progressData.isCancelled,
+        hasAccountError: progressData.hasAccountError,
         mpId: progressData.mpId,
         mpName: progressData.mpName
       });
+      
+      // Check for account error and show toast if needed
+      if (progressData.hasAccountError) {
+        toast.error('暂无可用读书账号!', {
+          description: '系统暂时没有可用的读书账号，请稍后再试',
+          id: 'no-available-account', // Use ID to prevent duplicate toasts
+        });
+      }
       
       // Set caching flag based on progress status
       if (progressData.inProgress && !isCaching) {
@@ -110,6 +120,8 @@ const ArticleList: FC<{ id: string }> = ({ id }) => {
       }
     }
   }, [progressData, isCaching, refetchArticles, refetchUncachedCount]);
+
+  // Remove the monitoring effect as we don't want to automatically show toast warnings
 
   const handleCacheAll = async () => {
     // Only allow caching if an mpId is specified
@@ -145,7 +157,7 @@ const ArticleList: FC<{ id: string }> = ({ id }) => {
       
       // Refresh the uncached count after caching starts
       refetchUncachedCount();
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Failed to start caching:', error);
       setIsCaching(false);
       toast.error('缓存失败，请重试');

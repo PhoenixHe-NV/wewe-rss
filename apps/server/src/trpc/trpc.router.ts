@@ -443,6 +443,7 @@ export class TrpcRouter {
             inProgress: boolean;
             isPaused: boolean;
             isCancelled: boolean;
+            hasAccountError?: boolean;
             mpId?: string;
             mpName?: string;
           }
@@ -455,6 +456,7 @@ export class TrpcRouter {
           inProgress: true,
           isPaused: false,
           isCancelled: false,
+          hasAccountError: false,
           mpId: mpId || 'ALL',
           mpName: mpNameValue,
         });
@@ -559,12 +561,29 @@ export class TrpcRouter {
                 );
 
                 // Use the new fetchHtmlContent method
-                const content = await this.fetchHtmlContent(url).catch((e) => {
+                let content;
+                try {
+                  content = await this.fetchHtmlContent(url);
+                } catch (e: any) {
                   this.logger.error(
                     `[${processedCount + 1}/${totalCount}] Error fetching HTML from ${url}: ${e.message}`,
                   );
-                  return '获取全文失败，请重试~';
-                });
+                  
+                  // If this is the "暂无可用读书账号" error, propagate it
+                  if (e.message?.includes('暂无可用读书账号')) {
+                    // Update the progress map to include error information
+                    const progress = progressMap.get(progressKey);
+                    if (progress) {
+                      progress.hasAccountError = true;
+                      progressMap.set(progressKey, progress);
+                    }
+                    
+                    // Throw the error to stop the caching process
+                    throw e;
+                  }
+                  
+                  content = '获取全文失败，请重试~';
+                }
 
                 // Save to cache
                 await this.prismaService.articleCache
@@ -672,6 +691,7 @@ export class TrpcRouter {
             inProgress: boolean;
             isPaused: boolean;
             isCancelled: boolean;
+            hasAccountError?: boolean;
             mpId?: string;
             mpName?: string;
           }
@@ -699,6 +719,7 @@ export class TrpcRouter {
             inProgress: false,
             isPaused: false,
             isCancelled: false,
+            hasAccountError: false,
           };
         }
 
@@ -946,7 +967,15 @@ export class TrpcRouter {
 
         return html;
       } catch (accountError: any) {
-        // If we can't get an account, fall back to unauthenticated request
+        // If the error message indicates no available accounts, propagate this error to the frontend
+        if (accountError.message?.includes('暂无可用读书账号')) {
+          this.logger.warn(
+            `Failed to get available account: ${accountError.message}. Propagating error to frontend.`,
+          );
+          throw new Error(`Failed to get available account: 暂无可用读书账号!`);
+        }
+        
+        // For other account errors, fall back to unauthenticated request
         this.logger.warn(
           `Failed to get available account: ${accountError.message}. Falling back to unauthenticated request.`,
         );
