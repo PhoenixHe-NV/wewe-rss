@@ -267,7 +267,10 @@ export class TrpcRouter {
         }),
       )
       .mutation(async ({ input: { mpId = '', limit_start_date = '' } }) => {
-        this.trpcService.getHistoryMpArticles(mpId, limit_start_date ? new Date(limit_start_date) : undefined);
+        this.trpcService.getHistoryMpArticles(
+          mpId,
+          limit_start_date ? new Date(limit_start_date) : undefined,
+        );
       }),
     getInProgressHistoryMp: this.trpcService.protectedProcedure.query(
       async () => {
@@ -306,7 +309,7 @@ export class TrpcRouter {
             cache: true,
           },
         });
-        
+
         let nextCursor: typeof cursor | undefined = undefined;
         if (items.length > limit) {
           // Remove the last item and use it as next cursor
@@ -317,7 +320,7 @@ export class TrpcRouter {
         }
 
         // Transform the items to include isCached property
-        const transformedItems = items.map(item => ({
+        const transformedItems = items.map((item) => ({
           ...item,
           isCached: item.cache !== null,
           cache: undefined, // Remove the cache object from the response
@@ -371,21 +374,34 @@ export class TrpcRouter {
         await this.prismaService.article.delete({ where: { id } });
         return id;
       }),
-    
+
     cacheAll: this.trpcService.protectedProcedure
       .input(
         z.object({
           mpId: z.string().nullish(),
+          startDate: z.string().nullish(),
+          endDate: z.string().nullish(),
         }),
       )
       .mutation(async ({ input }) => {
+        // Set default date range if not provided
         const { mpId } = input;
-        
-        // Get all uncached articles
+        const startDate = input.startDate || '2024-01-01';
+        const endDate = input.endDate || '2025-01-01';
+
+        this.logger.log(
+          `Caching articles with date range: ${startDate} to ${endDate}`,
+        );
+
+        // Get all uncached articles with date filtering (using defaults if not provided)
         const articles = await this.prismaService.article.findMany({
           where: {
             mpId: mpId ? { equals: mpId } : undefined,
             cache: null, // Only get articles without cache
+            publishTime: {
+              gte: Math.floor(new Date(startDate).getTime() / 1000),
+              lte: Math.floor(new Date(endDate).getTime() / 1000),
+            },
           },
           select: {
             id: true,
@@ -394,19 +410,21 @@ export class TrpcRouter {
             publishTime: 'desc', // Order by publish time descending (newest first)
           },
         });
-        
+
         const totalCount = articles.length;
         let processedCount = 0;
-        
-        this.logger.log(`Starting caching process for ${totalCount} articles${mpId ? ` for mpId: ${mpId}` : ''}`);
-        
+
+        this.logger.log(
+          `Starting caching process for ${totalCount} articles${mpId ? ` for mpId: ${mpId}` : ''}`,
+        );
+
         // Get MP name if mpId is provided
         let mpNameValue: string | undefined = undefined;
         if (mpId) {
           try {
             const feed = await this.prismaService.feed.findUnique({
               where: { id: mpId },
-              select: { mpName: true }
+              select: { mpName: true },
             });
             if (feed && feed.mpName) {
               mpNameValue = String(feed.mpName);
@@ -415,19 +433,22 @@ export class TrpcRouter {
             this.logger.error(`Error fetching MP name for ${mpId}:`, error);
           }
         }
-        
+
         // Create a map to store progress
-        const progressMap = new Map<string, { 
-          total: number; 
-          processed: number; 
-          inProgress: boolean;
-          isPaused: boolean;
-          isCancelled: boolean;
-          mpId?: string;
-          mpName?: string;
-        }>();
+        const progressMap = new Map<
+          string,
+          {
+            total: number;
+            processed: number;
+            inProgress: boolean;
+            isPaused: boolean;
+            isCancelled: boolean;
+            mpId?: string;
+            mpName?: string;
+          }
+        >();
         const progressKey = mpId || 'all';
-        
+
         progressMap.set(progressKey, {
           total: totalCount,
           processed: 0,
@@ -435,13 +456,13 @@ export class TrpcRouter {
           isPaused: false,
           isCancelled: false,
           mpId: mpId || 'ALL',
-          mpName: mpNameValue
+          mpName: mpNameValue,
         });
-        
+
         // Store the progress map in a global variable
         // @ts-ignore
         global.cacheProgressMap = progressMap;
-        
+
         // Start the caching process in the background
         (async () => {
           try {
@@ -449,152 +470,189 @@ export class TrpcRouter {
               try {
                 // Check if the process has been paused, and if so, wait until unpaused
                 // @ts-ignore
-                const currentProgressMap: Map<string, any> = global.cacheProgressMap || new Map();
+                const currentProgressMap: Map<string, any> =
+                  global.cacheProgressMap || new Map();
                 const currentProgress = currentProgressMap.get(progressKey);
-                
+
                 // Check if the process has been cancelled
                 if (currentProgress && currentProgress.isCancelled) {
-                  this.logger.log(`Caching for ${progressKey} has been cancelled`);
-                  
+                  this.logger.log(
+                    `Caching for ${progressKey} has been cancelled`,
+                  );
+
                   // Update the progress to mark as not in progress
                   currentProgress.inProgress = false;
                   currentProgressMap.set(progressKey, currentProgress);
-                  
+
                   // @ts-ignore
                   global.cacheProgressMap = currentProgressMap;
-                  
+
                   // Exit the function
-                  this.logger.log(`Caching process cancelled for ${progressKey} after processing ${processedCount}/${totalCount} articles`);
+                  this.logger.log(
+                    `Caching process cancelled for ${progressKey} after processing ${processedCount}/${totalCount} articles`,
+                  );
                   return;
                 }
-                
+
                 if (currentProgress && currentProgress.isPaused) {
                   // If paused, check every second if it's still paused
                   while (true) {
                     // Get the latest progress data
                     // @ts-ignore
-                    const latestProgressMap: Map<string, any> = global.cacheProgressMap || new Map();
+                    const latestProgressMap: Map<string, any> =
+                      global.cacheProgressMap || new Map();
                     const latestProgress = latestProgressMap.get(progressKey);
-                    
+
                     // Check for cancellation
                     if (latestProgress && latestProgress.isCancelled) {
-                      this.logger.log(`Caching for ${progressKey} has been cancelled while paused`);
-                      
+                      this.logger.log(
+                        `Caching for ${progressKey} has been cancelled while paused`,
+                      );
+
                       // Update the progress to mark as not in progress
                       latestProgress.inProgress = false;
                       latestProgressMap.set(progressKey, latestProgress);
-                      
+
                       // @ts-ignore
                       global.cacheProgressMap = latestProgressMap;
-                      
+
                       // Exit the function
-                      this.logger.log(`Caching process cancelled for ${progressKey} after processing ${processedCount}/${totalCount} articles`);
+                      this.logger.log(
+                        `Caching process cancelled for ${progressKey} after processing ${processedCount}/${totalCount} articles`,
+                      );
                       return;
                     }
-                    
+
                     // If no longer paused or no longer in progress, break the loop
-                    if (!latestProgress || !latestProgress.isPaused || !latestProgress.inProgress) {
+                    if (
+                      !latestProgress ||
+                      !latestProgress.isPaused ||
+                      !latestProgress.inProgress
+                    ) {
                       break;
                     }
-                    
+
                     // Wait for 1 second before checking again
-                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    await new Promise((resolve) => setTimeout(resolve, 1000));
                   }
-                  
+
                   // After the pause loop, check if we should still continue
                   // @ts-ignore
-                  const finalProgressMap: Map<string, any> = global.cacheProgressMap || new Map();
+                  const finalProgressMap: Map<string, any> =
+                    global.cacheProgressMap || new Map();
                   const finalProgress = finalProgressMap.get(progressKey);
-                  
+
                   // If no longer in progress, exit the function
                   if (!finalProgress || !finalProgress.inProgress) {
-                    this.logger.log(`Caching process stopped for ${progressKey} after processing ${processedCount}/${totalCount} articles`);
+                    this.logger.log(
+                      `Caching process stopped for ${progressKey} after processing ${processedCount}/${totalCount} articles`,
+                    );
                     return;
                   }
                 }
-                
+
                 const url = `https://mp.weixin.qq.com/s/${article.id}`;
-                
+
                 // Log the start of caching for this article
-                this.logger.log(`[${processedCount + 1}/${totalCount}] Caching article: ${article.id}`);
-                
+                this.logger.log(
+                  `[${processedCount + 1}/${totalCount}] Caching article: ${article.id}`,
+                );
+
                 // Use the new fetchHtmlContent method
                 const content = await this.fetchHtmlContent(url).catch((e) => {
-                  this.logger.error(`[${processedCount + 1}/${totalCount}] Error fetching HTML from ${url}: ${e.message}`);
+                  this.logger.error(
+                    `[${processedCount + 1}/${totalCount}] Error fetching HTML from ${url}: ${e.message}`,
+                  );
                   return '获取全文失败，请重试~';
                 });
-                
+
                 // Save to cache
-                await this.prismaService.articleCache.create({
-                  data: {
-                    articleId: article.id,
-                    content,
-                  },
-                }).catch((e) => {
-                  this.logger.error(`[${processedCount + 1}/${totalCount}] Failed to cache article ${article.id}: ${e.message}`);
-                });
-                
+                await this.prismaService.articleCache
+                  .create({
+                    data: {
+                      articleId: article.id,
+                      content,
+                    },
+                  })
+                  .catch((e) => {
+                    this.logger.error(
+                      `[${processedCount + 1}/${totalCount}] Failed to cache article ${article.id}: ${e.message}`,
+                    );
+                  });
+
                 processedCount++;
-                
+
                 // Log successful caching
-                this.logger.log(`[${processedCount}/${totalCount}] Successfully cached article: ${article.id} (${Math.round((processedCount / totalCount) * 100)}% complete)`);
-                
+                this.logger.log(
+                  `[${processedCount}/${totalCount}] Successfully cached article: ${article.id} (${Math.round((processedCount / totalCount) * 100)}% complete)`,
+                );
+
                 // Update progress
                 const progress = progressMap.get(progressKey);
                 if (progress) {
                   progress.processed = processedCount;
                   progressMap.set(progressKey, progress);
                 }
-                
+
                 // Sleep a bit to avoid overwhelming the server
-                await new Promise(resolve => setTimeout(resolve, 1000));
+                await new Promise((resolve) => setTimeout(resolve, 1000));
               } catch (error: any) {
-                this.logger.error(`[${processedCount + 1}/${totalCount}] Error caching article ${article.id}: ${error.message}`);
+                this.logger.error(
+                  `[${processedCount + 1}/${totalCount}] Error caching article ${article.id}: ${error.message}`,
+                );
                 this.logger.error(`Stack trace: ${error.stack}`);
               }
             }
 
             // Log completion of caching process
-            this.logger.log(`Caching process completed for ${progressKey}. Total processed: ${processedCount}/${totalCount} articles`);
-            
+            this.logger.log(
+              `Caching process completed for ${progressKey}. Total processed: ${processedCount}/${totalCount} articles`,
+            );
+
             // Update the progress to mark as completed
             // @ts-ignore
-            const finalProgressMap: Map<string, any> = global.cacheProgressMap || new Map();
+            const finalProgressMap: Map<string, any> =
+              global.cacheProgressMap || new Map();
             const finalProgress = finalProgressMap.get(progressKey);
-            
+
             if (finalProgress) {
               finalProgress.inProgress = false;
               finalProgressMap.set(progressKey, finalProgress);
-              
+
               // @ts-ignore
               global.cacheProgressMap = finalProgressMap;
             }
           } catch (error: any) {
-            this.logger.error(`Fatal error in caching process for ${progressKey}: ${error.message}`);
+            this.logger.error(
+              `Fatal error in caching process for ${progressKey}: ${error.message}`,
+            );
             this.logger.error(`Stack trace: ${error.stack}`);
-            
+
             // Update the progress to mark as failed in case of error
             // @ts-ignore
-            const errorProgressMap: Map<string, any> = global.cacheProgressMap || new Map();
+            const errorProgressMap: Map<string, any> =
+              global.cacheProgressMap || new Map();
             const errorProgress = errorProgressMap.get(progressKey);
-            
+
             if (errorProgress) {
               errorProgress.inProgress = false;
               errorProgressMap.set(progressKey, errorProgress);
-              
+
               // @ts-ignore
               global.cacheProgressMap = errorProgressMap;
             }
           } finally {
             // This block will run regardless of whether the process completed normally,
             // was cancelled, or encountered an error
-            this.logger.log(`Caching process for ${progressKey} finished processing ${processedCount}/${totalCount} articles`);
+            this.logger.log(
+              `Caching process for ${progressKey} finished processing ${processedCount}/${totalCount} articles`,
+            );
           }
         })();
-        
+
         return { total: totalCount };
       }),
-      
+
     getCacheProgress: this.trpcService.protectedProcedure
       .input(
         z.object({
@@ -604,21 +662,24 @@ export class TrpcRouter {
       .query(async ({ input }) => {
         const { mpId } = input;
         const progressKey = mpId || 'all';
-        
+
         // @ts-ignore
-        const progressMap: Map<string, { 
-          total: number; 
-          processed: number; 
-          inProgress: boolean;
-          isPaused: boolean;
-          isCancelled: boolean;
-          mpId?: string;
-          mpName?: string;
-        }> = global.cacheProgressMap || new Map();
-        
+        const progressMap: Map<
+          string,
+          {
+            total: number;
+            processed: number;
+            inProgress: boolean;
+            isPaused: boolean;
+            isCancelled: boolean;
+            mpId?: string;
+            mpName?: string;
+          }
+        > = global.cacheProgressMap || new Map();
+
         // First try to get progress for the specific mpId
         let progress = progressMap.get(progressKey);
-        
+
         // If no progress for specific mpId and it's not 'all', check if there's any active caching
         if (!progress || (!progress.inProgress && mpId && mpId !== 'all')) {
           // Find any active caching process
@@ -629,7 +690,7 @@ export class TrpcRouter {
             }
           }
         }
-        
+
         // If still no progress, return default empty state
         if (!progress) {
           progress = {
@@ -637,13 +698,13 @@ export class TrpcRouter {
             processed: 0,
             inProgress: false,
             isPaused: false,
-            isCancelled: false
+            isCancelled: false,
           };
         }
-        
+
         return progress;
       }),
-      
+
     togglePauseCaching: this.trpcService.protectedProcedure
       .input(
         z.object({
@@ -653,47 +714,52 @@ export class TrpcRouter {
       .mutation(async ({ input }) => {
         const { mpId } = input;
         const progressKey = mpId || 'all';
-        
+
         try {
           // @ts-ignore
-          const progressMap: Map<string, any> = global.cacheProgressMap || new Map();
-          
+          const progressMap: Map<string, any> =
+            global.cacheProgressMap || new Map();
+
           // Get current progress
           const progress = progressMap.get(progressKey);
-          
+
           this.logger.log(`Toggle pause request for ${progressKey}`);
-          
+
           if (progress && progress.inProgress) {
             // Get current pause state for logging
             const wasPaused = progress.isPaused;
-            
+
             this.logger.log(`Current pause state before toggle: ${wasPaused}`);
-            
+
             // Toggle the pause state
             progress.isPaused = !wasPaused;
             progressMap.set(progressKey, progress);
-            
+
             // @ts-ignore
             global.cacheProgressMap = progressMap;
-            
+
             const newPauseState = progress.isPaused;
-            this.logger.log(`Caching for ${progressKey} is now ${newPauseState ? 'paused' : 'resumed'}`);
-            
+            this.logger.log(
+              `Caching for ${progressKey} is now ${newPauseState ? 'paused' : 'resumed'}`,
+            );
+
             return {
-              isPaused: newPauseState
+              isPaused: newPauseState,
             };
           }
-          
+
           this.logger.log(`No active caching process found for ${progressKey}`);
           return {
-            isPaused: false
+            isPaused: false,
           };
         } catch (error: any) {
-          this.logger.error(`Error toggling pause state for ${progressKey}: ${error.message}`);
+          this.logger.error(
+            `Error toggling pause state for ${progressKey}: ${error.message}`,
+          );
           this.logger.error(`Stack trace: ${error.stack}`);
           throw new TRPCError({
             code: 'INTERNAL_SERVER_ERROR',
-            message: `Failed to toggle pause state: ${error.message}`
+            message: `Failed to toggle pause state: ${error.message}`,
           });
         }
       }),
@@ -706,32 +772,33 @@ export class TrpcRouter {
       .mutation(async ({ input }) => {
         const { mpId } = input;
         const progressKey = mpId || 'all';
-        
+
         // @ts-ignore
-        const progressMap: Map<string, any> = global.cacheProgressMap || new Map();
-        
+        const progressMap: Map<string, any> =
+          global.cacheProgressMap || new Map();
+
         // Get current progress
         const progress = progressMap.get(progressKey);
-        
+
         if (progress && progress.inProgress) {
           // Set the cancelled flag
           progress.isCancelled = true;
-          
+
           // If not paused, also set inProgress to false immediately
           if (!progress.isPaused) {
             progress.inProgress = false;
           }
-          
+
           progressMap.set(progressKey, progress);
-          
+
           // @ts-ignore
           global.cacheProgressMap = progressMap;
-          
+
           this.logger.log(`Caching for ${progressKey} has been cancelled`);
-          
+
           return { success: true };
         }
-        
+
         return { success: false };
       }),
     getUncachedCount: this.trpcService.protectedProcedure
@@ -742,7 +809,7 @@ export class TrpcRouter {
       )
       .query(async ({ input }) => {
         const { mpId } = input;
-        
+
         // Get count of all uncached articles for this MP
         const count = await this.prismaService.article.count({
           where: {
@@ -750,9 +817,9 @@ export class TrpcRouter {
             cache: null, // Only count articles without cache
           },
         });
-        
+
         this.logger.log(`Total uncached articles for mpId ${mpId}: ${count}`);
-        
+
         return { count };
       }),
   });
@@ -852,65 +919,78 @@ export class TrpcRouter {
       try {
         // Try to get an account from trpcService
         const account = await this.trpcService['getAvailableAccount']();
-        this.logger.log(`Using account ${account.name} (${account.id}) for fetching ${url}`);
-        
+        this.logger.log(
+          `Using account ${account.name} (${account.id}) for fetching ${url}`,
+        );
+
         // Use Got with authentication headers
         const got = (await import('got')).default;
-        const enableCleanHtml = this.configService.get<any>('feed')?.enableCleanHtml;
-        
+        const enableCleanHtml =
+          this.configService.get<any>('feed')?.enableCleanHtml;
+
         // Make the request with authentication headers
-        const html = await got(url, { 
+        const html = await got(url, {
           responseType: 'text',
           headers: {
             xid: account.id,
             Authorization: `Bearer ${account.token}`,
-          }
+          },
         }).text();
-        
+
         if (enableCleanHtml) {
           // Basic HTML cleaning if needed
           return html
             .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
             .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '');
         }
-        
+
         return html;
       } catch (accountError: any) {
         // If we can't get an account, fall back to unauthenticated request
-        this.logger.warn(`Failed to get available account: ${accountError.message}. Falling back to unauthenticated request.`);
-        
+        this.logger.warn(
+          `Failed to get available account: ${accountError.message}. Falling back to unauthenticated request.`,
+        );
+
         const got = (await import('got')).default;
-        const enableCleanHtml = this.configService.get<any>('feed')?.enableCleanHtml;
+        const enableCleanHtml =
+          this.configService.get<any>('feed')?.enableCleanHtml;
         const html = await got(url, { responseType: 'text' }).text();
-        
+
         if (enableCleanHtml) {
           return html
             .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
             .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '');
         }
-        
+
         return html;
       }
     } catch (error: any) {
       this.logger.error(`Error fetching HTML from ${url}: ${error.message}`);
-      
+
       // Implement retry logic with different accounts
       if (retryCount > 0) {
-        this.logger.log(`Retrying fetchHtmlContent for ${url}, ${retryCount} attempts left`);
-        
+        this.logger.log(
+          `Retrying fetchHtmlContent for ${url}, ${retryCount} attempts left`,
+        );
+
         // If there's an API error, mark the current account as blocked before retrying
-        if (error.response?.statusCode === 401 || error.response?.statusCode === 403) {
-          this.logger.warn(`Account unauthorized for ${url}, will try another account`);
+        if (
+          error.response?.statusCode === 401 ||
+          error.response?.statusCode === 403
+        ) {
+          this.logger.warn(
+            `Account unauthorized for ${url}, will try another account`,
+          );
           // The trpcService will automatically avoid blocked accounts on next call
         }
-        
+
         // Wait a moment before retrying
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+
         // Retry with a different account
         return this.fetchHtmlContent(url, retryCount - 1);
       }
-      
+
       throw error;
     }
   }

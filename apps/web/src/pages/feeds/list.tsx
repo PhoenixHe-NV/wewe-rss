@@ -12,6 +12,13 @@ import {
   Link,
   Chip,
   Progress,
+  Modal,
+  ModalContent,
+  ModalHeader,
+  ModalBody,
+  ModalFooter,
+  useDisclosure,
+  Input,
 } from '@nextui-org/react';
 import { trpc } from '@web/utils/trpc';
 import dayjs from 'dayjs';
@@ -33,7 +40,11 @@ const ArticleList: FC<{ id: string }> = ({ id }) => {
   console.log('mpId', mpId);
   
   const [isCaching, setIsCaching] = useState(false);
-  const [cacheProgress, setCacheProgress] = useState<CacheProgress>({ 
+  const { isOpen, onOpen, onClose } = useDisclosure();
+  const [startDate, setStartDate] = useState<string>("2024-01-01");
+  const [endDate, setEndDate] = useState<string>("2025-01-01");
+  
+  const [cacheProgress, setCacheProgress] = useState<CacheProgress>({
     processed: 0, 
     total: 0, 
     inProgress: false,
@@ -110,10 +121,14 @@ const ArticleList: FC<{ id: string }> = ({ id }) => {
 
     try {
       setIsCaching(true);
-      console.log('Starting cache for mpId:', mpId);
+      console.log('Starting cache for mpId:', mpId, 'with date range:', { startDate, endDate });
       
-      // Make sure mpId is passed correctly to ensure only caching specific articles
-      const result = await startCaching({ mpId });
+      // Pass date filter parameters to the API - we always have values now (defaults if not set by user)
+      const result = await startCaching({ 
+        mpId, 
+        startDate, 
+        endDate 
+      });
       
       setCacheProgress({
         processed: 0,
@@ -125,11 +140,15 @@ const ArticleList: FC<{ id: string }> = ({ id }) => {
         mpName: undefined
       });
       
+      // Show toast with date range information
+      toast.success(`已开始缓存文章，时间范围: ${startDate || '2024-01-01'} 至 ${endDate || '2025-01-01'}`);
+      
       // Refresh the uncached count after caching starts
       refetchUncachedCount();
     } catch (error) {
       console.error('Failed to start caching:', error);
       setIsCaching(false);
+      toast.error('缓存失败，请重试');
     }
   };
 
@@ -200,9 +219,16 @@ const ArticleList: FC<{ id: string }> = ({ id }) => {
     }
   };
 
+  interface ArticleItem {
+    id: string;
+    title: string;
+    publishTime: number;
+    isCached: boolean;
+  }
+  
   const items = useMemo(() => {
     const items = data
-      ? data.pages.reduce<any[]>((acc, page) => [...acc, ...page.items], [])
+      ? data.pages.reduce<ArticleItem[]>((acc, page) => [...acc, ...page.items], [])
       : [];
 
     return items;
@@ -212,14 +238,47 @@ const ArticleList: FC<{ id: string }> = ({ id }) => {
   const totalUncachedCount = useMemo(() => {
     return uncachedCountData?.count || 0;
   }, [uncachedCountData]);
-  
-  // Also calculate the visible uncached count (for debugging/comparison)
-  const visibleUncachedCount = useMemo(() => {
-    return items.filter(item => !item.isCached).length;
-  }, [items]);
 
   return (
     <div>
+      <Modal isOpen={isOpen} onClose={onClose} placement="center">
+        <ModalContent>
+          <ModalHeader className="flex flex-col gap-1">设置缓存文章日期范围</ModalHeader>
+          <ModalBody>
+            <div className="flex flex-col gap-4">
+              <Input
+                label="开始日期"
+                placeholder="YYYY-MM-DD"
+                type="date" 
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+              />
+              <Input
+                label="结束日期"
+                placeholder="YYYY-MM-DD"
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+              />
+              <p className="text-xs text-gray-500">
+                默认缓存2024年1月1日至2025年1月1日期间的文章。
+              </p>
+            </div>
+          </ModalBody>
+          <ModalFooter>
+            <Button color="danger" variant="light" onPress={onClose}>
+              取消
+            </Button>
+            <Button color="primary" onPress={() => {
+              handleCacheAll();
+              onClose();
+            }}>
+              开始缓存
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+      
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-xl font-bold">文章列表</h2>
         <div className="flex items-center gap-2">
@@ -278,14 +337,35 @@ const ArticleList: FC<{ id: string }> = ({ id }) => {
               </div>
             </div>
           )}
+          {!isCaching && (
+            <div className="flex items-center mr-4">
+              <Chip color="secondary" variant="flat" size="sm">
+                日期筛选: {startDate ? `${startDate}起` : '2024-01-01起'}
+                {' ~ '}
+                {endDate ? `${endDate}止` : '2025-01-01止'}
+              </Chip>
+              <Button
+                size="sm"
+                variant="light"
+                onPress={() => {
+                  setStartDate("2024-01-01");
+                  setEndDate("2025-01-01");
+                  toast.info("已重置为默认日期范围");
+                }}
+                className="ml-2"
+              >
+                重置
+              </Button>
+            </div>
+          )}
           <Button
             color="primary"
-            onPress={handleCacheAll}
+            onPress={onOpen}
             isLoading={isCaching}
             isDisabled={isCaching || totalUncachedCount === 0}
           >
-            缓存全部文章 {totalUncachedCount > 0 && `(${totalUncachedCount})`}
-            {!isCaching && totalUncachedCount > 0 && <span className="text-xs ml-1">(从新到旧)</span>}
+            缓存文章 {totalUncachedCount > 0 && `(${totalUncachedCount})`}
+            {!isCaching && totalUncachedCount > 0 && <span className="text-xs ml-1">(筛选时间范围)</span>}
           </Button>
         </div>
       </div>
