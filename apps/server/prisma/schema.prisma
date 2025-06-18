@@ -55,7 +55,8 @@ model Article {
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime? @default(now()) @updatedAt @map("updated_at")
 
-  cache ArticleCache?
+  cache    ArticleCache?
+  aiSummary ArticleAISummary?
 
   @@map("articles")
   @@index([mpId])
@@ -70,5 +71,26 @@ model ArticleCache {
   article   Article   @relation(fields: [articleId], references: [id])
 
   @@map("article_caches")
+  @@index([articleId])
+}
+
+// AI generated summaries for articles
+model ArticleAISummary {
+  id                  String    @id @default(uuid())
+  articleId           String    @map("article_id") @db.VarChar(255) @unique
+  summary             String    @db.Text
+  keywords            String?   @db.VarChar(1024)
+  photography_keywords String?  @map("photography_keywords") @db.VarChar(1024)
+  activity_keywords   String?   @map("activity_keywords") @db.VarChar(1024)
+  activity_time       String?   @map("activity_time") @db.VarChar(255)
+  location            String?   @db.VarChar(1024)
+  location_city       String?   @map("location_city") @db.VarChar(255)
+  organizer           String?   @db.VarChar(1024)
+  sentiment           String?   @db.VarChar(255)
+  processedAt         DateTime  @default(now()) @map("processed_at")
+  updatedAt           DateTime? @updatedAt @map("updated_at")
+  article             Article   @relation(fields: [articleId], references: [id])
+
+  @@map("article_ai_summaries")
   @@index([articleId])
 }

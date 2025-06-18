@@ -133,3 +133,4 @@ dist
 
 python/*.xlsx
 python/*.csv
+__pycache__
