@@ -616,7 +616,7 @@ export class TrpcRouter {
                       progress.hasAccountError = true;
                       progressMap.set(progressKey, progress);
                     }
-                    
+
                     this.logger.warn(
                       'No available accounts, continuing with unauthenticated requests',
                     );
