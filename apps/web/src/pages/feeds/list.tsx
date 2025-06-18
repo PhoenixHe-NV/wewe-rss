@@ -14,6 +14,11 @@ import {
   Progress,
   useDisclosure,
   Input,
+  Modal,
+  ModalContent,
+  ModalHeader,
+  ModalBody,
+  ModalFooter,
 } from '@nextui-org/react';
 import { trpc } from '@web/utils/trpc';
 import dayjs from 'dayjs';
@@ -42,6 +47,25 @@ const ArticleList: FC<{ id: string }> = ({ id }) => {
   
   // 添加月度直方图Modal相关状态
   const { isOpen: isHistogramOpen, onOpen: onHistogramOpen, onClose: onHistogramClose } = useDisclosure();
+  
+  // 添加删除确认对话框相关状态
+  const { isOpen: isDeleteModalOpen, onOpen: onDeleteModalOpen, onClose: onDeleteModalClose } = useDisclosure();
+  const [isDeleting, setIsDeleting] = useState(false);
+  
+  // 添加删除文章的TRPC mutation
+  const { mutateAsync: deleteAllArticles } = trpc.feed.deleteAllArticlesByMpId.useMutation({
+    onSuccess: (data) => {
+      toast.success(data.message);
+      // 刷新文章列表
+      refetchArticles();
+      // 刷新月度统计数据
+      refetchHistogram();
+    },
+    onError: (error) => {
+      console.error('Failed to delete articles:', error);
+      toast.error('删除文章失败，请重试');
+    },
+  });
   
   // 历史文章月度统计数据获取
   const { data: monthlyHistogramData, isLoading: isHistogramLoading, refetch: refetchHistogram } = 
@@ -266,18 +290,28 @@ const ArticleList: FC<{ id: string }> = ({ id }) => {
         <div className="flex items-center gap-2">
           <h2 className="text-xl font-bold">文章列表</h2>
           {mpId && mpId !== '' && (
-            <Button 
-              size="sm" 
-              variant="light" 
-              color="secondary"
-              onPress={() => {
-                onHistogramOpen();
-                // 确保打开Modal时有最新数据
-                refetchHistogram();
-              }}
-            >
-              月度统计图
-            </Button>
+            <>
+              <Button 
+                size="sm" 
+                variant="light" 
+                color="secondary"
+                onPress={() => {
+                  onHistogramOpen();
+                  // 确保打开Modal时有最新数据
+                  refetchHistogram();
+                }}
+              >
+                月度统计图
+              </Button>
+              <Button
+                size="sm"
+                variant="light"
+                color="danger"
+                onPress={onDeleteModalOpen}
+              >
+                删除所有文章
+              </Button>
+            </>
           )}
         </div>
         <div className="flex items-center gap-2">
@@ -482,6 +516,55 @@ const ArticleList: FC<{ id: string }> = ({ id }) => {
         data={monthlyHistogramData}
         mpId={mpId}
       />
+      
+      {/* 删除确认对话框 */}
+      <Modal
+        isOpen={isDeleteModalOpen}
+        onClose={onDeleteModalClose}
+      >
+        <ModalContent>
+          <ModalHeader>确认删除</ModalHeader>
+          <ModalBody>
+            {isDeleting ? (
+              <div className="flex items-center gap-2">
+                <Spinner size="sm" />
+                <span>正在删除文章...</span>
+              </div>
+            ) : (
+              <p className="text-danger font-bold">
+                您确定要删除该公众号下的所有文章吗？
+                <br/>
+                <span className="text-sm font-normal text-gray-600">此操作不可恢复，但不会影响公众号订阅本身</span>
+              </p>
+            )}
+          </ModalBody>
+          <ModalFooter>
+            <Button
+              color="primary"
+              onPress={async () => {
+                setIsDeleting(true);
+                try {
+                  await deleteAllArticles({ mpId });
+                  onDeleteModalClose();
+                } catch (error) {
+                  console.error('Failed to delete articles:', error);
+                  toast.error('删除文章失败，请重试');
+                } finally {
+                  setIsDeleting(false);
+                }
+              }}
+            >
+              删除
+            </Button>
+            <Button
+              color="secondary"
+              onPress={onDeleteModalClose}
+            >
+              取消
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </div>
   );
 };

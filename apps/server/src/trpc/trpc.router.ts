@@ -277,6 +277,50 @@ export class TrpcRouter {
         return this.trpcService.inProgressHistoryMp;
       },
     ),
+
+    deleteAllArticlesByMpId: this.trpcService.protectedProcedure
+      .input(
+        z.object({
+          mpId: z.string(),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        const { mpId } = input;
+
+        if (!mpId) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'MpId is required',
+          });
+        }
+
+        // 先找出要删除的文章数量以记录日志，但这里不需要使用
+        await this.prismaService.article.count({
+          where: { mpId },
+        });
+
+        // 首先删除所有相关联的缓存
+        await this.prismaService.articleCache.deleteMany({
+          where: {
+            article: {
+              mpId,
+            },
+          },
+        });
+
+        // 然后删除所有文章
+        const result = await this.prismaService.article.deleteMany({
+          where: { mpId },
+        });
+
+        this.logger.log(`Deleted ${result.count} articles for mpId: ${mpId}`);
+
+        return {
+          success: true,
+          count: result.count,
+          message: `成功删除 ${result.count} 篇文章`,
+        };
+      }),
   });
 
   articleRouter = this.trpcService.router({
@@ -866,7 +910,7 @@ export class TrpcRouter {
       )
       .query(async ({ input }) => {
         const { mpId } = input;
-        
+
         // Aggregate articles by month
         const articles = await this.prismaService.article.findMany({
           where: {
@@ -876,7 +920,7 @@ export class TrpcRouter {
             publishTime: true,
           },
         });
-        
+
         // Process the data to create a histogram
         const monthlyHistogram = articles.reduce(
           (acc, article) => {
@@ -884,22 +928,22 @@ export class TrpcRouter {
             const yearMonth = `${date.getFullYear()}-${String(
               date.getMonth() + 1,
             ).padStart(2, '0')}`;
-            
+
             if (!acc[yearMonth]) {
               acc[yearMonth] = 0;
             }
-            
+
             acc[yearMonth]++;
             return acc;
           },
           {} as Record<string, number>,
         );
-        
+
         // Convert to array and sort by year-month
         const result = Object.entries(monthlyHistogram)
           .map(([month, count]) => ({ month, count }))
           .sort((a, b) => a.month.localeCompare(b.month));
-        
+
         return result;
       }),
   });

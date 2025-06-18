@@ -281,13 +281,14 @@ export class TrpcService {
       //   return;
       // }
 
-      const total = await this.prismaService.article.count({
-        where: {
-          mpId,
-        },
-      });
+      // const total = await this.prismaService.article.count({
+      //   where: {
+      //     mpId,
+      //   },
+      // });
       // this.inProgressHistoryMp.page = Math.ceil(total / defaultCount);
-      this.inProgressHistoryMp.page = total > 0 ? 2 : 1;
+      // this.inProgressHistoryMp.page = total > 0 ? 2 : 1;
+      this.inProgressHistoryMp.page = 1;
 
       // 最多尝试一千次
       let i = 1e3;

@@ -40,10 +40,27 @@ const Feeds = () => {
   // Function to get feedId from localStorage
   const getStoredFeedId = () => {
     try {
-      return localStorage.getItem(STORAGE_KEY_SELECTED_FEED) || '';
+      const storedId = localStorage.getItem(STORAGE_KEY_SELECTED_FEED);
+      console.log('Retrieved from localStorage:', storedId);
+      return storedId || '';
     } catch (e) {
       console.error('Failed to read from localStorage:', e);
       return '';
+    }
+  };
+  
+  // Function to store feedId to localStorage
+  const storeFeedId = (feedId: string) => {
+    try {
+      if (feedId) {
+        localStorage.setItem(STORAGE_KEY_SELECTED_FEED, feedId);
+        console.log('Stored to localStorage:', feedId);
+      } else {
+        localStorage.removeItem(STORAGE_KEY_SELECTED_FEED);
+        console.log('Removed from localStorage');
+      }
+    } catch (e) {
+      console.error('Failed to write to localStorage:', e);
     }
   };
   
@@ -98,6 +115,9 @@ const Feeds = () => {
   // State to track if history fetching is active in the UI
   const [isHistoryFetching, setIsHistoryFetching] = useState(false);
   
+  // 添加一个布尔值标记，表示组件已经初始化完成
+  const [isInitialized, setIsInitialized] = useState(false);
+  
   // Update the history fetching state when inProgressHistoryMp changes
   useEffect(() => {
     if (inProgressHistoryMp && inProgressHistoryMp.id) {
@@ -107,34 +127,86 @@ const Feeds = () => {
     }
   }, [inProgressHistoryMp]);
 
-  // Update currentMpId when URL parameters change and update URL
+  // 初始化 feed 选择和 URL 同步
   useEffect(() => {
+    // 仅在feedData加载完成后执行初始化
+    if (!isInitialized && feedData) {
+      console.log("Initializing feed selection with data:", {
+        initialFeedId,
+        currentState: currentMpId,
+        urlParam: id,
+        queryParam: queryFeedId,
+        localStorage: getStoredFeedId(),
+        feedsLoaded: !!feedData
+      });
+
+      // 检查 initialFeedId 是否有效 (在feed列表中存在)
+      const feedExists = initialFeedId ? 
+        feedData.items?.some(item => item.id === initialFeedId) : 
+        true; // 空字符串(全部)总是有效的
+      
+      if (feedExists) {
+        // 如果feed存在且与当前状态不同，更新currentMpId
+        if (initialFeedId !== currentMpId) {
+          console.log(`Feed exists, updating from ${currentMpId} to ${initialFeedId}`);
+          setCurrentMpId(initialFeedId);
+        }
+        
+        // 确保URL与选择一致
+        const targetUrl = initialFeedId ? 
+          `/feeds?feedId=${initialFeedId}` : 
+          '/feeds';
+        
+        // 只有当URL与目标URL不匹配时才更新
+        const currentPath = window.location.pathname + window.location.search;
+      
+        // 检查当前路径是否已包含目标路径的关键部分
+        if (!currentPath.includes(initialFeedId ? `feedId=${initialFeedId}` : '/feeds') || 
+            (initialFeedId && currentPath.includes('feedId') && !currentPath.includes(`feedId=${initialFeedId}`))) {
+          console.log(`URL mismatch, navigating to ${targetUrl}`);
+          navigate(targetUrl, { replace: true });
+        }
+        
+        // 确保localStorage同步
+        storeFeedId(initialFeedId);
+      } else {
+        console.log(`Selected feed ${initialFeedId} not found in feed list, resetting selection`);
+        // Feed不存在，清除选择
+        setCurrentMpId('');
+        storeFeedId('');
+        navigate('/feeds', { replace: true });
+      }
+      
+      setIsInitialized(true);
+    }
+  }, [feedData, initialFeedId, currentMpId, id, queryFeedId, navigate, isInitialized]);
+
+  // Update currentMpId when URL parameters change and update URL
+  // 只在初始化完成后才响应URL参数变化
+  useEffect(() => {
+    // 如果还没初始化完成，跳过这个effect
+    if (!isInitialized) {
+      return;
+    }
+    
     const idFromParams = id || searchParams.get('feedId') || '';
     
     if (idFromParams !== currentMpId) {
-      console.log(`Updating currentMpId from ${currentMpId} to ${idFromParams}`);
+      console.log(`URL params changed: Updating currentMpId from ${currentMpId} to ${idFromParams}`);
       setCurrentMpId(idFromParams);
       
-      // Save to localStorage
-      try {
-        if (idFromParams) {
-          localStorage.setItem(STORAGE_KEY_SELECTED_FEED, idFromParams);
-        } else {
-          // If no feed selected, remove from localStorage
-          localStorage.removeItem(STORAGE_KEY_SELECTED_FEED);
-        }
-      } catch (e) {
-        console.error('Failed to save to localStorage:', e);
-      }
+      // Save to localStorage using storeFeedId helper
+      storeFeedId(idFromParams);
       
       // When the feedId comes from the query parameter, update the URL structure
-      // to be consistent with direct navigation
-      if (!id && idFromParams) {
+      // to be consistent with direct navigation, but avoid unnecessary updates
+      if (!id && idFromParams && window.location.pathname === '/dash/feeds' && !window.location.search.includes(`feedId=${idFromParams}`)) {
         // Only update if we need to - avoid infinite loops
+        console.log(`Updating URL to include feedId=${idFromParams}`);
         navigate(`/feeds?feedId=${idFromParams}`, { replace: true });
       }
     }
-  }, [id, searchParams, currentMpId, navigate]);
+  }, [id, searchParams, currentMpId, navigate, isInitialized]);
 
   const handleConfirm = async () => {
     console.log('wxsLink', wxsLink);
@@ -233,6 +305,31 @@ const Feeds = () => {
     }
   };
 
+  // 对feeds按拼音排序，数字和字母排前面，模拟Excel顺序
+  const sortedFeedItems = useMemo(() => {
+    if (!feedData?.items) return [];
+    const sorted = [...feedData.items];
+    const collator = new Intl.Collator('zh-Hans-CN', { sensitivity: 'accent' });
+
+    // 判断首字符类型
+    function getType(str: string) {
+      if (!str) return 3; // 兜底
+      const first = str.trim()[0];
+      if (/^[0-9]/.test(first)) return 0; // 数字
+      if (/^[A-Za-z]/.test(first)) return 1; // 字母
+      return 2; // 其他（中文等）
+    }
+
+    sorted.sort((a, b) => {
+      const typeA = getType(a.mpName);
+      const typeB = getType(b.mpName);
+      if (typeA !== typeB) return typeA - typeB;
+      // 同类型再按拼音
+      return collator.compare(a.mpName, b.mpName);
+    });
+    return sorted;
+  }, [feedData?.items]);
+
   return (
     <>
       <div className="h-full flex justify-between">
@@ -257,27 +354,18 @@ const Feeds = () => {
               emptyContent="暂无订阅"
               onAction={(key) => {
                 const feedId = key as string;
+                console.log(`Listbox onAction: Selecting feed "${feedId}"`);
+                
+                // Set currentMpId first
                 setCurrentMpId(feedId);
                 
-                // Save to localStorage
-                try {
-                  if (feedId) {
-                    localStorage.setItem(STORAGE_KEY_SELECTED_FEED, feedId);
-                  } else {
-                    localStorage.removeItem(STORAGE_KEY_SELECTED_FEED);
-                  }
-                } catch (e) {
-                  console.error('Failed to save to localStorage:', e);
-                }
+                // Update localStorage
+                storeFeedId(feedId);
                 
-                // Update URL with the selected feedId
-                if (feedId) {
-                  // Use navigate instead of setSearchParams to update the URL properly
-                  navigate(`/feeds?feedId=${feedId}`, { replace: true });
-                } else {
-                  // Remove the parameter if no feed is selected
-                  navigate('/feeds', { replace: true });
-                }
+                // Then update URL with the selected feedId (navigate triggers the URL change useEffect)
+                const targetUrl = feedId ? `/feeds?feedId=${feedId}` : '/feeds';
+                console.log(`Navigating to ${targetUrl}`);
+                navigate(targetUrl, { replace: true });
               }}
             >
               <ListboxSection showDivider>
@@ -292,7 +380,7 @@ const Feeds = () => {
               </ListboxSection>
 
               <ListboxSection className="overflow-y-auto h-[calc(100vh-260px)]">
-                {feedData?.items.map((item) => {
+                {sortedFeedItems.map((item) => {
                   return (
                     <ListboxItem
                       // href={`/feeds/${item.id}`}
@@ -301,19 +389,7 @@ const Feeds = () => {
                       }
                       key={item.id}
                       startContent={<Avatar src={item.mpCover}></Avatar>}
-                      onSelect={() => {
-                        setCurrentMpId(item.id);
-                        
-                        // Save to localStorage
-                        try {
-                          localStorage.setItem(STORAGE_KEY_SELECTED_FEED, item.id);
-                        } catch (e) {
-                          console.error('Failed to save to localStorage:', e);
-                        }
-                        
-                        // Update URL with the selected feedId using navigate
-                        navigate(`/feeds?feedId=${item.id}`, { replace: true });
-                      }}
+                      // 移除onSelect，因为onAction已经处理了这个逻辑
                     >
                       {item.mpName}
                     </ListboxItem>
@@ -458,20 +534,41 @@ const Feeds = () => {
                       if (window.confirm('确定删除吗？')) {
                         await deleteFeed(currentMpInfo.id);
                         
-                        // Remove from localStorage if the deleted feed is currently selected
-                        try {
-                          const storedFeedId = localStorage.getItem(STORAGE_KEY_SELECTED_FEED);
-                          if (storedFeedId === currentMpInfo.id) {
-                            localStorage.removeItem(STORAGE_KEY_SELECTED_FEED);
+                        // Fetch updated feed list first
+                        await refetchFeedList();
+                        
+                        // After refetching, find another feed to navigate to
+                        const updatedFeeds = queryUtils.feed.list.getData();
+                        let nextFeedId = '';
+                        
+                        // Select the next feed if available
+                        if (updatedFeeds?.items && updatedFeeds.items.length > 0) {
+                          // Try to find the index of deleted feed
+                          const deletedIndex = feedData?.items?.findIndex(item => item.id === currentMpInfo.id) ?? -1;
+                          
+                          if (deletedIndex !== -1 && updatedFeeds.items && deletedIndex < updatedFeeds.items.length) {
+                            // Select the next feed in the list
+                            nextFeedId = updatedFeeds.items[deletedIndex]?.id || '';
+                          } else if (updatedFeeds.items && updatedFeeds.items.length > 0) {
+                            // Or select the first feed
+                            nextFeedId = updatedFeeds.items[0]?.id || '';
                           }
-                        } catch (e) {
-                          console.error('Failed to access localStorage:', e);
+                          
+                          // Save the next feed ID to localStorage using storeFeedId helper
+                          if (nextFeedId) {
+                            storeFeedId(nextFeedId);
+                            console.log('Selected next feed after delete:', nextFeedId);
+                          } else {
+                            storeFeedId(''); // Clear selection if no feeds left
+                          }
                         }
                         
-                        // Clear the feedId parameter when deleting and navigate
-                        navigate('/feeds', { replace: true });
-                        
-                        await refetchFeedList();
+                        // Navigate to the next feed or to the feeds page
+                        if (nextFeedId) {
+                          navigate(`/feeds?feedId=${nextFeedId}`, { replace: true });
+                        } else {
+                          navigate('/feeds', { replace: true });
+                        }
                       }
                     }}
                   >
