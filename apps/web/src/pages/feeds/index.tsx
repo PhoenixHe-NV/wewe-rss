@@ -20,7 +20,7 @@ import {
 } from '@nextui-org/react';
 import { PlusIcon } from '@web/components/PlusIcon';
 import { trpc } from '@web/utils/trpc';
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import dayjs from 'dayjs';
@@ -330,6 +330,36 @@ const Feeds = () => {
     return sorted;
   }, [feedData?.items]);
 
+  // Add ref for the listbox container for auto-scrolling
+  const listboxContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    // Auto-scroll to selected feed item when:
+    // 1. Component is initialized
+    // 2. Feed data is loaded
+    // 3. Current feed selection changes
+    if (isInitialized && feedData && listboxContainerRef.current) {
+      console.log("Attempting to scroll to selected feed:", currentMpId);
+      
+      // Give a slight delay to ensure DOM is fully rendered
+      setTimeout(() => {
+        // Find the selected feed item by its ID
+        const feedItemId = currentMpId ? `feed-item-${currentMpId}` : 'feed-item-all';
+        const selectedElement = document.getElementById(feedItemId);
+        
+        if (selectedElement && listboxContainerRef.current) {
+          console.log("Found element, scrolling to:", feedItemId);
+          
+          // Use scrollIntoView with smooth scrolling
+          selectedElement.scrollIntoView({
+            behavior: 'smooth',
+            block: 'nearest',
+          });
+        }
+      }, 100);
+    }
+  }, [currentMpId, isInitialized, feedData]);
+
   return (
     <>
       <div className="h-full flex justify-between">
@@ -367,6 +397,7 @@ const Feeds = () => {
                 console.log(`Navigating to ${targetUrl}`);
                 navigate(targetUrl, { replace: true });
               }}
+              ref={listboxContainerRef}
             >
               <ListboxSection showDivider>
                 <ListboxItem
@@ -374,6 +405,7 @@ const Feeds = () => {
                   // href={`/feeds`}
                   className={isActive('') ? 'bg-primary-50 text-primary' : ''}
                   startContent={<Avatar name="ALL"></Avatar>}
+                  id="feed-item-all"
                 >
                   全部
                 </ListboxItem>
@@ -390,6 +422,7 @@ const Feeds = () => {
                       key={item.id}
                       startContent={<Avatar src={item.mpCover}></Avatar>}
                       // 移除onSelect，因为onAction已经处理了这个逻辑
+                      id={`feed-item-${item.id}`}
                     >
                       {item.mpName}
                     </ListboxItem>

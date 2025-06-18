@@ -506,7 +506,6 @@ export class TrpcRouter {
         });
 
         // Store the progress map in a global variable
-        // @ts-ignore
         global.cacheProgressMap = progressMap;
 
         // Start the caching process in the background
@@ -515,7 +514,6 @@ export class TrpcRouter {
             for (const article of articles) {
               try {
                 // Check if the process has been paused, and if so, wait until unpaused
-                // @ts-ignore
                 const currentProgressMap: Map<string, any> =
                   global.cacheProgressMap || new Map();
                 const currentProgress = currentProgressMap.get(progressKey);
@@ -530,7 +528,6 @@ export class TrpcRouter {
                   currentProgress.inProgress = false;
                   currentProgressMap.set(progressKey, currentProgress);
 
-                  // @ts-ignore
                   global.cacheProgressMap = currentProgressMap;
 
                   // Exit the function
@@ -544,7 +541,6 @@ export class TrpcRouter {
                   // If paused, check every second if it's still paused
                   while (true) {
                     // Get the latest progress data
-                    // @ts-ignore
                     const latestProgressMap: Map<string, any> =
                       global.cacheProgressMap || new Map();
                     const latestProgress = latestProgressMap.get(progressKey);
@@ -559,7 +555,6 @@ export class TrpcRouter {
                       latestProgress.inProgress = false;
                       latestProgressMap.set(progressKey, latestProgress);
 
-                      // @ts-ignore
                       global.cacheProgressMap = latestProgressMap;
 
                       // Exit the function
@@ -583,7 +578,6 @@ export class TrpcRouter {
                   }
 
                   // After the pause loop, check if we should still continue
-                  // @ts-ignore
                   const finalProgressMap: Map<string, any> =
                     global.cacheProgressMap || new Map();
                   const finalProgress = finalProgressMap.get(progressKey);
@@ -613,17 +607,19 @@ export class TrpcRouter {
                     `[${processedCount + 1}/${totalCount}] Error fetching HTML from ${url}: ${e.message}`,
                   );
 
-                  // If this is the "暂无可用读书账号" error, propagate it
+                  // If this is the "暂无可用读书账号" error, log it but continue with unauthenticated requests
+                  // We won't throw the error because fetchHtmlContent will already have fallen back to unauthenticated requests
                   if (e.message?.includes('暂无可用读书账号')) {
-                    // Update the progress map to include error information
+                    // Update the progress map to include information about account limitations
                     const progress = progressMap.get(progressKey);
                     if (progress) {
                       progress.hasAccountError = true;
                       progressMap.set(progressKey, progress);
                     }
-
-                    // Throw the error to stop the caching process
-                    throw e;
+                    
+                    this.logger.warn(
+                      'No available accounts, continuing with unauthenticated requests',
+                    );
                   }
 
                   content = '获取全文失败，请重试~';
@@ -673,7 +669,6 @@ export class TrpcRouter {
             );
 
             // Update the progress to mark as completed
-            // @ts-ignore
             const finalProgressMap: Map<string, any> =
               global.cacheProgressMap || new Map();
             const finalProgress = finalProgressMap.get(progressKey);
@@ -682,7 +677,6 @@ export class TrpcRouter {
               finalProgress.inProgress = false;
               finalProgressMap.set(progressKey, finalProgress);
 
-              // @ts-ignore
               global.cacheProgressMap = finalProgressMap;
             }
           } catch (error: any) {
@@ -692,7 +686,6 @@ export class TrpcRouter {
             this.logger.error(`Stack trace: ${error.stack}`);
 
             // Update the progress to mark as failed in case of error
-            // @ts-ignore
             const errorProgressMap: Map<string, any> =
               global.cacheProgressMap || new Map();
             const errorProgress = errorProgressMap.get(progressKey);
@@ -701,7 +694,6 @@ export class TrpcRouter {
               errorProgress.inProgress = false;
               errorProgressMap.set(progressKey, errorProgress);
 
-              // @ts-ignore
               global.cacheProgressMap = errorProgressMap;
             }
           } finally {
@@ -726,7 +718,6 @@ export class TrpcRouter {
         const { mpId } = input;
         const progressKey = mpId || 'all';
 
-        // @ts-ignore
         const progressMap: Map<
           string,
           {
@@ -747,7 +738,7 @@ export class TrpcRouter {
         // If no progress for specific mpId and it's not 'all', check if there's any active caching
         if (!progress || (!progress.inProgress && mpId && mpId !== 'all')) {
           // Find any active caching process
-          for (const [key, value] of progressMap.entries()) {
+          for (const [, value] of progressMap.entries()) {
             if (value.inProgress) {
               progress = value;
               break;
@@ -781,7 +772,6 @@ export class TrpcRouter {
         const progressKey = mpId || 'all';
 
         try {
-          // @ts-ignore
           const progressMap: Map<string, any> =
             global.cacheProgressMap || new Map();
 
@@ -800,7 +790,6 @@ export class TrpcRouter {
             progress.isPaused = !wasPaused;
             progressMap.set(progressKey, progress);
 
-            // @ts-ignore
             global.cacheProgressMap = progressMap;
 
             const newPauseState = progress.isPaused;
@@ -838,7 +827,6 @@ export class TrpcRouter {
         const { mpId } = input;
         const progressKey = mpId || 'all';
 
-        // @ts-ignore
         const progressMap: Map<string, any> =
           global.cacheProgressMap || new Map();
 
@@ -856,7 +844,6 @@ export class TrpcRouter {
 
           progressMap.set(progressKey, progress);
 
-          // @ts-ignore
           global.cacheProgressMap = progressMap;
 
           this.logger.log(`Caching for ${progressKey} has been cancelled`);
@@ -911,17 +898,23 @@ export class TrpcRouter {
       .query(async ({ input }) => {
         const { mpId } = input;
 
-        // Aggregate articles by month
+        // Fetch all articles with cache information
         const articles = await this.prismaService.article.findMany({
           where: {
             mpId,
           },
           select: {
+            id: true,
             publishTime: true,
+            cache: {
+              select: {
+                id: true,
+              },
+            },
           },
         });
 
-        // Process the data to create a histogram
+        // Process the data to create a histogram for both total articles and cached articles
         const monthlyHistogram = articles.reduce(
           (acc, article) => {
             const date = new Date(article.publishTime * 1000);
@@ -929,19 +922,34 @@ export class TrpcRouter {
               date.getMonth() + 1,
             ).padStart(2, '0')}`;
 
+            // Initialize if not exists
             if (!acc[yearMonth]) {
-              acc[yearMonth] = 0;
+              acc[yearMonth] = {
+                total: 0,
+                cached: 0,
+              };
             }
 
-            acc[yearMonth]++;
+            // Increment total count
+            acc[yearMonth].total++;
+
+            // If article has cache, increment cached count
+            if (article.cache) {
+              acc[yearMonth].cached++;
+            }
+
             return acc;
           },
-          {} as Record<string, number>,
+          {} as Record<string, { total: number; cached: number }>,
         );
 
         // Convert to array and sort by year-month
         const result = Object.entries(monthlyHistogram)
-          .map(([month, count]) => ({ month, count }))
+          .map(([month, counts]) => ({
+            month,
+            count: counts.total,
+            cachedCount: counts.cached,
+          }))
           .sort((a, b) => a.month.localeCompare(b.month));
 
         return result;
@@ -1052,14 +1060,55 @@ export class TrpcRouter {
         const enableCleanHtml =
           this.configService.get<any>('feed')?.enableCleanHtml;
 
-        // Make the request with authentication headers
+        // Make the request with authentication headers and browser-like headers
         const html = await got(url, {
           responseType: 'text',
           headers: {
+            // Authentication headers
             xid: account.id,
             Authorization: `Bearer ${account.token}`,
+            // Browser-like headers to mimic real browser
+            accept:
+              'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+            'accept-language':
+              'en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7,en-GB;q=0.6',
+            'cache-control': 'max-age=0',
+            dnt: '1',
+            'upgrade-insecure-requests': '1',
+            'user-agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36 Edg/137.0.0.0',
+            'sec-ch-ua':
+              '"Microsoft Edge";v="137", "Chromium";v="137", "Not/A)Brand";v="24"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"',
+            'sec-fetch-dest': 'document',
+            'sec-fetch-mode': 'navigate',
+            'sec-fetch-site': 'cross-site',
+            'sec-fetch-user': '?1',
+            priority: 'u=0, i',
           },
         }).text();
+
+        // Check if the response contains error message indicating environment issues
+        if (html.includes('当前环境异常')) {
+          this.logger.warn(
+            `Received "当前环境异常" error for ${url}, will retry after delay`,
+          );
+
+          // If we have retries left, wait and retry
+          if (retryCount > 0) {
+            this.logger.log(
+              `Waiting 20 seconds before retry. ${retryCount} attempts left`,
+            );
+            // Wait 20 seconds before retrying as requested
+            await new Promise((resolve) => setTimeout(resolve, 20000));
+            return this.fetchHtmlContent(url, retryCount - 1);
+          } else {
+            throw new Error(
+              'Failed after multiple retries due to environment issues: 当前环境异常',
+            );
+          }
+        }
 
         if (enableCleanHtml) {
           // Basic HTML cleaning if needed
@@ -1070,23 +1119,65 @@ export class TrpcRouter {
 
         return html;
       } catch (accountError: any) {
-        // If the error message indicates no available accounts, propagate this error to the frontend
+        // If the error message indicates no available accounts, log warning and fall back to unauthenticated request
         if (accountError.message?.includes('暂无可用读书账号')) {
           this.logger.warn(
-            `Failed to get available account: ${accountError.message}. Propagating error to frontend.`,
+            `Failed to get available account: ${accountError.message}. Falling back to unauthenticated request.`,
           );
-          throw new Error(`Failed to get available account: 暂无可用读书账号!`);
+        } else {
+          // For other account errors, also fall back to unauthenticated request
+          this.logger.warn(
+            `Failed to get available account: ${accountError.message}. Falling back to unauthenticated request.`,
+          );
         }
-
-        // For other account errors, fall back to unauthenticated request
-        this.logger.warn(
-          `Failed to get available account: ${accountError.message}. Falling back to unauthenticated request.`,
-        );
 
         const got = (await import('got')).default;
         const enableCleanHtml =
           this.configService.get<any>('feed')?.enableCleanHtml;
-        const html = await got(url, { responseType: 'text' }).text();
+        const html = await got(url, {
+          responseType: 'text',
+          headers: {
+            // Browser-like headers to mimic real browser
+            accept:
+              'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+            'accept-language':
+              'en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7,en-GB;q=0.6',
+            'cache-control': 'max-age=0',
+            dnt: '1',
+            'upgrade-insecure-requests': '1',
+            'user-agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36 Edg/137.0.0.0',
+            'sec-ch-ua':
+              '"Microsoft Edge";v="137", "Chromium";v="137", "Not/A)Brand";v="24"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"',
+            'sec-fetch-dest': 'document',
+            'sec-fetch-mode': 'navigate',
+            'sec-fetch-site': 'cross-site',
+            'sec-fetch-user': '?1',
+            priority: 'u=0, i',
+          },
+        }).text();
+
+        // Also check for environment issues in the unauthenticated request
+        if (html.includes('当前环境异常')) {
+          this.logger.warn(
+            `Received "当前环境异常" error in unauthenticated request for ${url}, will retry after delay`,
+          );
+
+          if (retryCount > 0) {
+            this.logger.log(
+              `Waiting 20 seconds before retry. ${retryCount} attempts left`,
+            );
+            // Wait 20 seconds before retrying as requested
+            await new Promise((resolve) => setTimeout(resolve, 20000));
+            return this.fetchHtmlContent(url, retryCount - 1);
+          } else {
+            throw new Error(
+              'Failed after multiple retries due to environment issues: 当前环境异常',
+            );
+          }
+        }
 
         if (enableCleanHtml) {
           return html

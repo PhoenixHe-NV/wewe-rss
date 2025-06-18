@@ -17,7 +17,7 @@ def get_sql_to_dump():
     start_timestamp = get_timestamp(2024, 1, 1)
     end_timestamp = get_timestamp(2025, 1, 1)
     
-    query = f"""--sql
+    query = f"""
     select
         ac."content" as "content_html",
         a."title",

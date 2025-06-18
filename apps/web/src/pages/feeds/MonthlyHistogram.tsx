@@ -14,14 +14,14 @@ interface MonthlyHistogramProps {
   isOpen: boolean;
   onClose: () => void;
   isLoading: boolean;
-  data: { month: string; count: number }[] | undefined;
+  data: { month: string; count: number; cachedCount: number }[] | undefined;
   mpId: string;
 }
 
 const MonthlyHistogram: FC<MonthlyHistogramProps> = ({ isOpen, onClose, isLoading, data, mpId }) => {
   return (
-    <Modal 
-      isOpen={isOpen} 
+    <Modal
+      isOpen={isOpen}
       onClose={onClose}
       size="2xl"
     >
@@ -51,26 +51,39 @@ const MonthlyHistogram: FC<MonthlyHistogramProps> = ({ isOpen, onClose, isLoadin
                       style={{ fontFamily: 'sans-serif', fontSize: '12px' }}
                     >
                       <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis 
-                        dataKey="month" 
+                      <XAxis
+                        dataKey="month"
                         angle={-45}
                         textAnchor="end"
                         height={50}
-                        tick={{ fill: '#000000' }}  // 黑色字体
+                        tick={{ fill: '#000000' }}
                       />
-                      <YAxis tick={{ fill: '#000000' }} /> {/* 黑色字体 */}
+                      <YAxis tick={{ fill: '#000000' }} />
                       <Tooltip
-                        formatter={(value) => [`${value} 篇`, '文章数']}
+                        formatter={(value, name) => {
+                          return [`${value} 篇`, name === "cachedCount" ? "已缓存文章数" : "文章数量"]
+                        }}
                         labelFormatter={(label) => `${label} 月`}
-                        contentStyle={{ color: '#000000' }}  // 提示框内容为黑色
+                        contentStyle={{ color: '#000000' }}
                       />
-                      <Legend 
-                        wrapperStyle={{ color: '#000000' }}  // 图例文字为黑色
+                      <Legend
+                        wrapperStyle={{ color: '#000000' }}
                       />
-                      <Bar 
-                        dataKey="count" 
-                        name="文章数量" 
+                      <Bar
+                        dataKey="count"
+                        name="文章数量"
                         fill="#8884d8"
+                        animationDuration={1000}
+                        label={{
+                          position: 'top',
+                          fill: '#000000',
+                          fontSize: 12
+                        }}
+                      />
+                      <Bar
+                        dataKey="cachedCount"
+                        name="已缓存文章数"
+                        fill="#4CAF50"  // 绿色
                         animationDuration={1000}
                         label={{
                           position: 'top',
