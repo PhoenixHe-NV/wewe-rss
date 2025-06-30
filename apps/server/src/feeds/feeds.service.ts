@@ -73,6 +73,14 @@ export class FeedsService {
   async handleUpdateFeedsCron() {
     this.logger.debug('Called handleUpdateFeedsCron');
 
+    // Skip execution if DISABLE_CRON environment variable is set to 'true'
+    if (process.env.DISABLE_CRON === 'true') {
+      this.logger.log(
+        'Cron job execution skipped: DISABLE_CRON is set to true',
+      );
+      return;
+    }
+
     const feeds = await this.prismaService.feed.findMany({
       where: { status: 1 },
     });

@@ -130,6 +130,8 @@ pnpm run start:server
 
 - `CRON_EXPRESSION` 定时更新订阅源Cron表达式，默认为 `35 5,17 * * *`。
 
+- `DISABLE_CRON` 设置为 `true` 时禁用定时更新，默认为 `false`。
+
 - `UPDATE_DELAY_TIME` 连续更新延迟时间，减少被关小黑屋，默认为 `60s`。
 
 - `ENABLE_CLEAN_HTML` 是否开启正文html清理，默认为 `false`。

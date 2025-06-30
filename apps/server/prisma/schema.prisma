@@ -86,6 +86,7 @@ model ArticleAISummary {
   location            String?   @db.VarChar(1024)
   location_city       String?   @map("location_city") @db.VarChar(255)
   organizer           String?   @db.VarChar(1024)
+  artists             String?   @db.VarChar(1024)
   sentiment           String?   @db.VarChar(255)
   processedAt         DateTime  @default(now()) @map("processed_at")
   updatedAt           DateTime? @updatedAt @map("updated_at")

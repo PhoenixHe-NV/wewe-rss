@@ -98,6 +98,7 @@ class DatabaseClient:
         location: Optional[str] = None,
         location_city: Optional[str] = None,
         organizer: Optional[str] = None,
+        artists: Optional[str] = None,
         sentiment: Optional[str] = None
     ) -> bool:
         """
@@ -126,12 +127,12 @@ class DatabaseClient:
             INSERT INTO article_ai_summaries (
                 id, article_id, summary, keywords, photography_keywords, 
                 activity_keywords, activity_time, location, location_city, 
-                organizer, sentiment
+                organizer, artists, sentiment
             )
             VALUES (
                 :id, :article_id, :summary, :keywords, :photography_keywords,
                 :activity_keywords, :activity_time, :location, :location_city,
-                :organizer, :sentiment
+                :organizer, :artists, :sentiment
             )
             ON CONFLICT (article_id) 
             DO UPDATE SET 
@@ -143,6 +144,7 @@ class DatabaseClient:
                 location = :location,
                 location_city = :location_city,
                 organizer = :organizer,
+                artists = :artists,
                 sentiment = :sentiment,
                 updated_at = CURRENT_TIMESTAMP
             """
@@ -161,6 +163,7 @@ class DatabaseClient:
                         "location": location,
                         "location_city": location_city,
                         "organizer": organizer,
+                        "artists": artists,
                         "sentiment": sentiment
                     }
                 )

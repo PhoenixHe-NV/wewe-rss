@@ -118,6 +118,9 @@ const Feeds = () => {
   // 添加一个布尔值标记，表示组件已经初始化完成
   const [isInitialized, setIsInitialized] = useState(false);
   
+  // 记录上一次的进度状态，用于检测历史文章获取完成
+  const prevInProgressRef = useRef(inProgressHistoryMp);
+  
   // Update the history fetching state when inProgressHistoryMp changes
   useEffect(() => {
     if (inProgressHistoryMp && inProgressHistoryMp.id) {
@@ -125,7 +128,21 @@ const Feeds = () => {
     } else {
       setIsHistoryFetching(false);
     }
-  }, [inProgressHistoryMp]);
+    
+    // 检查是否从"正在获取"变为"已完成"状态
+    const wasInProgress = prevInProgressRef.current?.id;
+    const isNowComplete = !inProgressHistoryMp?.id;
+    
+    // 如果之前有任务在进行，现在已完成，则刷新文章列表
+    if (wasInProgress && isNowComplete) {
+      console.log("历史文章获取已完成，正在刷新文章列表...");
+      queryUtils.article.list.reset();
+      toast.success("历史文章获取已完成，文章列表已更新");
+    }
+    
+    // 更新参考值
+    prevInProgressRef.current = inProgressHistoryMp;
+  }, [inProgressHistoryMp, queryUtils.article.list]);
 
   // 初始化 feed 选择和 URL 同步
   useEffect(() => {
@@ -225,7 +242,7 @@ const Feeds = () => {
           updateTime: item.updateTime,
           status: 1,
         });
-        await refreshMpArticles({ mpId: item.id });
+        // await refreshMpArticles({ mpId: item.id });
         toast.success('添加成功', {
           description: `公众号 ${item.name}`,
         });
@@ -289,6 +306,9 @@ const Feeds = () => {
           limit_start_date: limitStartDate || undefined,
         });
         toast.success('已停止获取历史文章');
+        
+        // 停止后刷新文章列表
+        await queryUtils.article.list.reset();
       } else {
         // Start fetching
         await getHistoryArticles({
@@ -359,6 +379,8 @@ const Feeds = () => {
       }, 100);
     }
   }, [currentMpId, isInitialized, feedData]);
+
+  // 此部分代码已在线程中前面定义，这里移除重复声明
 
   return (
     <>
