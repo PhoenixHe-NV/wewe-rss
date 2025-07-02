@@ -353,6 +353,43 @@ const Feeds = () => {
   // Add ref for the listbox container for auto-scrolling
   const listboxContainerRef = useRef<HTMLDivElement>(null);
 
+  // 添加复制到剪贴板的函数
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (err) {
+      // 降级方案：使用传统的复制方法
+      try {
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        const successful = document.execCommand('copy');
+        document.body.removeChild(textArea);
+        return successful;
+      } catch (fallbackErr) {
+        console.error('复制失败:', fallbackErr);
+        return false;
+      }
+    }
+  };
+
+  // 添加双击处理函数
+  const handleFeedDoubleClick = async (mpName: string) => {
+    const success = await copyToClipboard(mpName);
+    if (success) {
+      toast.success('已复制到剪贴板', {
+        description: mpName,
+      });
+    } else {
+      toast.error('复制失败', {
+        description: '请手动复制',
+      });
+    }
+  };
+
   useEffect(() => {
     // Auto-scroll to selected feed item when:
     // 1. Component is initialized
@@ -445,6 +482,7 @@ const Feeds = () => {
                       startContent={<Avatar src={item.mpCover}></Avatar>}
                       // 移除onSelect，因为onAction已经处理了这个逻辑
                       id={`feed-item-${item.id}`}
+                      onDoubleClick={() => handleFeedDoubleClick(item.mpName)}
                     >
                       {item.mpName}
                     </ListboxItem>

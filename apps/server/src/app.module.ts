@@ -7,6 +7,7 @@ import configuration, { ConfigurationType } from './configuration';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
 import { FeedsModule } from './feeds/feeds.module';
+import { ImportController } from './import/import.controller';
 
 @Module({
   imports: [
@@ -33,7 +34,7 @@ import { FeedsModule } from './feeds/feeds.module';
       },
     }),
   ],
-  controllers: [AppController],
+  controllers: [AppController, ImportController],
   providers: [AppService],
 })
 export class AppModule {}

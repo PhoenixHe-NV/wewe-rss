@@ -954,6 +954,195 @@ export class TrpcRouter {
 
         return result;
       }),
+
+    importArticleCache: this.trpcService.protectedProcedure
+      .input(
+        z.object({
+          mp_name: z.string(),
+          mp_signature: z.string().optional().default(''),
+          mp_img_link: z.string().optional().default(''),
+          article_title: z.string(),
+          article_publish_time: z
+            .union([z.number(), z.string()])
+            .transform((val) => {
+              // If it's already a number, return as is
+              if (typeof val === 'number') {
+                return val;
+              }
+
+              // If it's a string, try to parse it as a date
+              try {
+                const date = new Date(val);
+                if (isNaN(date.getTime())) {
+                  throw new Error('Invalid date format');
+                }
+                return Math.floor(date.getTime() / 1000); // Convert to Unix timestamp
+              } catch (error) {
+                throw new Error(
+                  `Invalid date format: ${val}. Expected Unix timestamp (number) or date string like "2024-03-11 18:01"`,
+                );
+              }
+            }),
+          article_url: z.string(),
+          article_content: z.string(),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        const {
+          mp_name,
+          mp_signature,
+          mp_img_link,
+          article_title,
+          article_publish_time,
+          article_url,
+          article_content,
+        } = input;
+
+        try {
+          // Extract article ID from URL - support both formats:
+          // 1. https://mp.weixin.qq.com/s/articleId
+          // 2. http://mp.weixin.qq.com/s?__biz=...&sn=articleId&...
+          let articleId: string;
+
+          // First try the simple format
+          const simpleMatch = article_url.match(/\/s\/([^/?]+)/);
+          if (simpleMatch && simpleMatch[1]) {
+            articleId = simpleMatch[1];
+          } else {
+            // Try the complex format with sn parameter
+            const complexMatch = article_url.match(/[?&]sn=([^&]+)/);
+            if (complexMatch && complexMatch[1]) {
+              articleId = complexMatch[1];
+            } else {
+              throw new TRPCError({
+                code: 'BAD_REQUEST',
+                message:
+                  'Invalid article URL format. Expected either "/s/articleId" or "?sn=articleId" format',
+              });
+            }
+          }
+
+          // Step 1: Check if feed exists by mp_name, if not create it
+          let feed = await this.prismaService.feed.findFirst({
+            where: { mpName: mp_name },
+          });
+
+          let feedId: string;
+          if (!feed) {
+            // Generate a feed ID (you might want to use a different strategy)
+            feedId = `mp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+            feed = await this.prismaService.feed.create({
+              data: {
+                id: feedId,
+                mpName: mp_name,
+                mpCover: mp_img_link || '',
+                mpIntro: mp_signature || '',
+                syncTime: Math.floor(Date.now() / 1000),
+                updateTime: article_publish_time,
+                status: statusMap.ENABLE,
+              },
+            });
+
+            this.logger.log(`Created new feed: ${mp_name} (ID: ${feedId})`);
+          } else {
+            feedId = feed.id;
+          }
+
+          // Step 2: Check if article exists by title and feed
+          let article = await this.prismaService.article.findFirst({
+            where: {
+              title: article_title,
+              mpId: feedId,
+            },
+            include: { cache: true },
+          });
+
+          let articleCreated = false;
+          if (!article) {
+            // Create new article
+            article = await this.prismaService.article.create({
+              data: {
+                id: articleId,
+                mpId: feedId,
+                title: article_title,
+                picUrl: '', // You might want to extract this from content if needed
+                publishTime: article_publish_time,
+              },
+              include: { cache: true },
+            });
+            articleCreated = true;
+            this.logger.log(
+              `Created new article: ${article_title} (ID: ${articleId})`,
+            );
+          }
+
+          // Step 3: Handle caching
+          let cacheAction = 'none';
+          let contentMatches = false;
+
+          if (!article.cache) {
+            // No cache exists, create new cache
+            await this.prismaService.articleCache.create({
+              data: {
+                articleId: article.id,
+                content: article_content,
+              },
+            });
+            cacheAction = 'created';
+            this.logger.log(`Created cache for article: ${article.id}`);
+          } else {
+            // Cache exists, compare content
+            contentMatches = article.cache.content === article_content;
+
+            if (!contentMatches) {
+              // Update existing cache with new content
+              await this.prismaService.articleCache.update({
+                where: { articleId: article.id },
+                data: { content: article_content },
+              });
+              cacheAction = 'updated';
+              this.logger.log(`Updated cache for article: ${article.id}`);
+            } else {
+              cacheAction = 'unchanged';
+              this.logger.log(
+                `Cache content matches for article: ${article.id}`,
+              );
+            }
+          }
+
+          return {
+            success: true,
+            data: {
+              feedId,
+              feedCreated: !feed || feed.id === feedId,
+              articleId: article.id,
+              articleCreated,
+              cacheAction,
+              contentMatches:
+                cacheAction === 'unchanged' ? true : contentMatches,
+            },
+            message: `Successfully processed article: ${article_title}`,
+          };
+        } catch (error: any) {
+          this.logger.error(`Error importing article cache: ${error.message}`);
+          this.logger.error(`Stack trace: ${error.stack}`);
+
+          // Check if it's a duplicate key error
+          if (error.code === 'P2002') {
+            return {
+              success: false,
+              error: 'Duplicate entry detected',
+              message: `Article or feed already exists with conflicting data`,
+            };
+          }
+
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: `Failed to import article cache: ${error.message}`,
+          });
+        }
+      }),
   });
 
   platformRouter = this.trpcService.router({

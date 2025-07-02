@@ -1,0 +1,9 @@
+# Python脚本依赖包
+# 用于HTTP请求
+requests>=2.25.0
+
+# 如果需要更高级的HTTP功能，可以选择使用httpx
+# httpx>=0.24.0
+
+# 如果需要异步支持
+# aiohttp>=3.8.0
