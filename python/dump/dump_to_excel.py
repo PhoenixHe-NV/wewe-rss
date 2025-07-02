@@ -51,6 +51,8 @@ def get_sql_to_dump(processed_after=None):
         ais."keywords",
         ais."photography_keywords",
         ais."activity_keywords",
+        ais."exhibition_keywords",
+        ais."academic_keywords",
         ais."activity_time",
         ais."location",
         ais."location_city",
@@ -149,6 +151,8 @@ def main(processed_after=None):
                 'keywords': '关键字',
                 'photography_keywords': '影像关键字',
                 'activity_keywords': '活动关键字',
+                'exhibition_keywords': '展览关键字',
+                'academic_keywords': '学术关键字',
                 'activity_time': '活动时间',
                 'location': '地点',
                 'location_city': '城市',
@@ -159,7 +163,7 @@ def main(processed_after=None):
             # 设置列顺序
             column_order = [
                 '标题', '公众号名称', '文章链接',
-                '影像关键字', '活动关键字', '关键字',
+                '影像关键字', '活动关键字', '展览关键字', '学术关键字', '关键字',
                 '活动时间', '地点', '城市', '主办方', '参与嘉宾/艺术家', '总结', '发布时间', 'AI处理时间'
             ]
             
@@ -222,6 +226,8 @@ def save_to_excel(df, filename="wewe_rss_dump.xlsx"):
                     '关键字': 30,
                     '影像关键字': 25,
                     '活动关键字': 25,
+                    '展览关键字': 25,
+                    '学术关键字': 25,
                     '活动时间': 15,
                     '地点': 25,
                     '城市': 15,

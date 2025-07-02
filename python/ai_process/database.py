@@ -94,6 +94,8 @@ class DatabaseClient:
         keywords: Optional[str] = None,
         photography_keywords: Optional[str] = None,
         activity_keywords: Optional[str] = None,
+        exhibition_keywords: Optional[str] = None,
+        academic_keywords: Optional[str] = None,
         activity_time: Optional[str] = None,
         location: Optional[str] = None,
         location_city: Optional[str] = None,
@@ -110,10 +112,13 @@ class DatabaseClient:
             keywords: Optional keywords extracted from the article
             photography_keywords: Optional keywords related to photography/video
             activity_keywords: Optional keywords related to academic activities
+            exhibition_keywords: Optional keywords related to exhibitions
+            academic_keywords: Optional keywords related to academic articles
             activity_time: Optional activity time (YYYY-MM-DD format)
             location: Optional activity location
             location_city: Optional city where the activity takes place
             organizer: Optional organizer of the activity
+            artists: Optional participating artists/guests
             sentiment: Optional sentiment analysis result
             
         Returns:
@@ -126,12 +131,14 @@ class DatabaseClient:
             query = """
             INSERT INTO article_ai_summaries (
                 id, article_id, summary, keywords, photography_keywords, 
-                activity_keywords, activity_time, location, location_city, 
+                activity_keywords, exhibition_keywords, academic_keywords,
+                activity_time, location, location_city, 
                 organizer, artists, sentiment
             )
             VALUES (
                 :id, :article_id, :summary, :keywords, :photography_keywords,
-                :activity_keywords, :activity_time, :location, :location_city,
+                :activity_keywords, :exhibition_keywords, :academic_keywords,
+                :activity_time, :location, :location_city,
                 :organizer, :artists, :sentiment
             )
             ON CONFLICT (article_id) 
@@ -140,6 +147,8 @@ class DatabaseClient:
                 keywords = :keywords,
                 photography_keywords = :photography_keywords,
                 activity_keywords = :activity_keywords,
+                exhibition_keywords = :exhibition_keywords,
+                academic_keywords = :academic_keywords,
                 activity_time = :activity_time,
                 location = :location,
                 location_city = :location_city,
@@ -159,6 +168,8 @@ class DatabaseClient:
                         "keywords": keywords,
                         "photography_keywords": photography_keywords,
                         "activity_keywords": activity_keywords,
+                        "exhibition_keywords": exhibition_keywords,
+                        "academic_keywords": academic_keywords,
                         "activity_time": activity_time,
                         "location": location,
                         "location_city": location_city,
@@ -190,33 +201,60 @@ class DatabaseClient:
             start_date = datetime.fromtimestamp(1704067200).strftime('%Y-%m-%d')
             end_date = datetime.fromtimestamp(1735689600).strftime('%Y-%m-%d')
             
-            # Base query counts
-            base_query = """
-            SELECT 
-                (SELECT COUNT(*) FROM article_caches) as total_articles,
-                (SELECT COUNT(*) FROM article_ai_summaries) as processed_articles
-            """
-            
-            # Add mp_id filter for date range count if provided
+            # Build query with proper filtering
             if mp_id:
-                date_range_query = f"""
-                , (SELECT COUNT(*) FROM articles a 
-                   WHERE a.publish_time >= 1704067200 
-                   AND a.publish_time <= 1735689600
-                   AND a.mp_id = :mp_id) as articles_in_date_range
+                query = """
+                SELECT 
+                    -- Total articles in date range for this mp_id that have cache
+                    (SELECT COUNT(*) 
+                     FROM articles a 
+                     JOIN article_caches ac ON a.id = ac.article_id 
+                     WHERE a.publish_time >= 1704067200 
+                     AND a.publish_time <= 1735689600
+                     AND a.mp_id = :mp_id) as total_articles,
+                    
+                    -- Processed articles in date range for this mp_id
+                    (SELECT COUNT(*) 
+                     FROM articles a 
+                     JOIN article_ai_summaries ais ON a.id = ais.article_id 
+                     WHERE a.publish_time >= 1704067200 
+                     AND a.publish_time <= 1735689600
+                     AND a.mp_id = :mp_id) as processed_articles,
+                    
+                    -- All articles in date range for this mp_id (for reference)
+                    (SELECT COUNT(*) 
+                     FROM articles a 
+                     WHERE a.publish_time >= 1704067200 
+                     AND a.publish_time <= 1735689600
+                     AND a.mp_id = :mp_id) as articles_in_date_range,
+                    
+                    -- MP name
+                    (SELECT f.mp_name FROM feeds f WHERE f.id = :mp_id) as mp_name
                 """
-                mp_name_query = f"""
-                , (SELECT f.mp_name FROM feeds f WHERE f.id = :mp_id) as mp_name
-                """
-                query = base_query + date_range_query + mp_name_query
                 params = {"mp_id": mp_id}
             else:
-                date_range_query = f"""
-                , (SELECT COUNT(*) FROM articles a 
-                   WHERE a.publish_time >= 1704067200 
-                   AND a.publish_time <= 1735689600) as articles_in_date_range
+                query = """
+                SELECT 
+                    -- Total articles in date range that have cache
+                    (SELECT COUNT(*) 
+                     FROM articles a 
+                     JOIN article_caches ac ON a.id = ac.article_id 
+                     WHERE a.publish_time >= 1704067200 
+                     AND a.publish_time <= 1735689600) as total_articles,
+                    
+                    -- Processed articles in date range
+                    (SELECT COUNT(*) 
+                     FROM articles a 
+                     JOIN article_ai_summaries ais ON a.id = ais.article_id 
+                     WHERE a.publish_time >= 1704067200 
+                     AND a.publish_time <= 1735689600) as processed_articles,
+                    
+                    -- All articles in date range (for reference)
+                    (SELECT COUNT(*) 
+                     FROM articles a 
+                     WHERE a.publish_time >= 1704067200 
+                     AND a.publish_time <= 1735689600) as articles_in_date_range
                 """
-                query = base_query + date_range_query
                 params = {}
             
             with self.engine.connect() as conn:

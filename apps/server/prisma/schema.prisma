@@ -82,6 +82,8 @@ model ArticleAISummary {
   keywords            String?   @db.VarChar(1024)
   photography_keywords String?  @map("photography_keywords") @db.VarChar(1024)
   activity_keywords   String?   @map("activity_keywords") @db.VarChar(1024)
+  exhibition_keywords String?   @map("exhibition_keywords") @db.VarChar(1024)
+  academic_keywords   String?   @map("academic_keywords") @db.VarChar(1024)
   activity_time       String?   @map("activity_time") @db.VarChar(255)
   location            String?   @db.VarChar(1024)
   location_city       String?   @map("location_city") @db.VarChar(255)

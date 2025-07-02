@@ -106,6 +106,8 @@ async def process_batch(db_client: DatabaseClient, llm_client: LLMClient, batch_
                     keywords=result.get("keywords", ""),
                     photography_keywords=result.get("photography_keywords", ""),
                     activity_keywords=result.get("activity_keywords", ""),
+                    exhibition_keywords=result.get("exhibition_keywords", ""),
+                    academic_keywords=result.get("academic_keywords", ""),
                     activity_time=result.get("activity_time", ""),
                     location=result.get("location", ""),
                     location_city=result.get("location_city", ""),
