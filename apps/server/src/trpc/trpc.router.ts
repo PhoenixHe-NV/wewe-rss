@@ -1022,32 +1022,32 @@ export class TrpcRouter {
             }
           }
 
-          // Step 1: Check if feed exists by mp_name, if not create it
-          let feed = await this.prismaService.feed.findFirst({
+          // Step 1: Check if feed exists by mp_name, if not pretend success without inserting data
+          const feed = await this.prismaService.feed.findFirst({
             where: { mpName: mp_name },
           });
 
-          let feedId: string;
+          // If feed doesn't exist, pretend success without actually inserting data
           if (!feed) {
-            // Generate a feed ID (you might want to use a different strategy)
-            feedId = `mp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-            feed = await this.prismaService.feed.create({
+            this.logger.log(
+              `Feed not found for ${mp_name}, pretending success without inserting data`,
+            );
+            return {
+              success: true,
               data: {
-                id: feedId,
-                mpName: mp_name,
-                mpCover: mp_img_link || '',
-                mpIntro: mp_signature || '',
-                syncTime: Math.floor(Date.now() / 1000),
-                updateTime: article_publish_time,
-                status: statusMap.ENABLE,
+                feedId: '',
+                feedCreated: false,
+                articleId: '',
+                articleCreated: false,
+                cacheAction: 'none',
+                contentMatches: false,
               },
-            });
-
-            this.logger.log(`Created new feed: ${mp_name} (ID: ${feedId})`);
-          } else {
-            feedId = feed.id;
+              message: `Skipped processing for article: ${article_title} (feed not found)`,
+            };
           }
+
+          // Feed exists, proceed with the normal flow
+          const feedId = feed.id;
 
           // Step 2: Check if article exists by title and feed
           let article = await this.prismaService.article.findFirst({
