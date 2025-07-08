@@ -50,6 +50,7 @@ model Article {
   mpId        String @map("mp_id") @db.VarChar(255)
   title       String @map("title") @db.VarChar(255)
   picUrl      String @map("pic_url") @db.VarChar(255)
+  url         String? @map("url") @db.VarChar(1024)
   publishTime Int    @map("publish_time")
 
   createdAt DateTime  @default(now()) @map("created_at")
@@ -77,19 +78,19 @@ model ArticleCache {
 // AI generated summaries for articles
 model ArticleAISummary {
   id                  String    @id @default(uuid())
-  articleId           String    @map("article_id") @db.VarChar(255) @unique
+  articleId           String    @map("article_id") @db.VarChar(1024) @unique
   summary             String    @db.Text
   keywords            String?   @db.VarChar(1024)
   photography_keywords String?  @map("photography_keywords") @db.VarChar(1024)
   activity_keywords   String?   @map("activity_keywords") @db.VarChar(1024)
   exhibition_keywords String?   @map("exhibition_keywords") @db.VarChar(1024)
   academic_keywords   String?   @map("academic_keywords") @db.VarChar(1024)
-  activity_time       String?   @map("activity_time") @db.VarChar(255)
-  location            String?   @db.VarChar(1024)
-  location_city       String?   @map("location_city") @db.VarChar(255)
+  activity_time       String?   @map("activity_time") @db.VarChar(1024)
+  location            String?   @db.VarChar(4096)
+  location_city       String?   @map("location_city") @db.VarChar(1024)
   organizer           String?   @db.VarChar(1024)
-  artists             String?   @db.VarChar(1024)
-  sentiment           String?   @db.VarChar(255)
+  artists             String?   @db.VarChar(4096)
+  sentiment           String?   @db.VarChar(1024)
   processedAt         DateTime  @default(now()) @map("processed_at")
   updatedAt           DateTime? @updatedAt @map("updated_at")
   article             Article   @relation(fields: [articleId], references: [id])

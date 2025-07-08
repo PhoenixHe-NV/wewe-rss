@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "article_ai_summaries" ALTER COLUMN "location" SET DATA TYPE VARCHAR(4096),
+ALTER COLUMN "artists" SET DATA TYPE VARCHAR(4096);

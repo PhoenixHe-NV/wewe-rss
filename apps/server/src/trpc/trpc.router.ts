@@ -1068,6 +1068,7 @@ export class TrpcRouter {
                 title: article_title,
                 picUrl: '', // You might want to extract this from content if needed
                 publishTime: article_publish_time,
+                url: article_url,
               },
               include: { cache: true },
             });

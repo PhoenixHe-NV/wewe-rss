@@ -24,24 +24,35 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-async def process_batch(db_client: DatabaseClient, llm_client: LLMClient, batch_size: int, mp_id: Optional[str] = None) -> Dict[str, int]:
+def clean_trailing_quotes(text: str) -> str:
     """
-    Process a batch of articles and save results to the database.
+    Clean trailing double quotes from text.
+    
+    Args:
+        text: The text to clean
+        
+    Returns:
+        Text with trailing double quotes removed
+    """
+    if isinstance(text, str):
+        return text.rstrip('"')
+    return text if text is not None else ""
+
+async def process_normal_batch(db_client: DatabaseClient, llm_client: LLMClient, articles: List[Dict[str, Any]]) -> Dict[str, int]:
+    """
+    Process a batch of articles using normal async parallel processing.
+    This is used as a fallback when batch API is not available.
     
     Args:
         db_client: Database client instance
-        llm_client: LLM client instance
-        batch_size: Number of articles to process in the batch
-        mp_id: Optional media publication ID to filter articles by
+        llm_client: LLM client instance  
+        articles: List of article dictionaries to process
         
     Returns:
-        Number of successfully processed articles
+        Dictionary with processing statistics
     """
-    # Get unprocessed article caches, filtering by mp_id if provided
-    articles = db_client.get_unprocessed_article_caches(batch_size, mp_id)
-    
     if not articles:
-        logger.info("No unprocessed articles found.")
+        logger.info("No articles to process.")
         return {'processed': 0, 'success': 0, 'failed': 0}
         
     logger.info(f"Processing batch of {len(articles)} articles in parallel...")
@@ -102,18 +113,18 @@ async def process_batch(db_client: DatabaseClient, llm_client: LLMClient, batch_
             try:
                 saved = db_client.save_ai_summary(
                     article_id=article_id,
-                    summary=result.get("summary", ""),
-                    keywords=result.get("keywords", ""),
-                    photography_keywords=result.get("photography_keywords", ""),
-                    activity_keywords=result.get("activity_keywords", ""),
-                    exhibition_keywords=result.get("exhibition_keywords", ""),
-                    academic_keywords=result.get("academic_keywords", ""),
-                    activity_time=result.get("activity_time", ""),
-                    location=result.get("location", ""),
-                    location_city=result.get("location_city", ""),
-                    organizer=result.get("organizer", ""),
-                    artists=result.get("artists", ""),
-                    sentiment=result.get("sentiment", "")
+                    summary=clean_trailing_quotes(result.get("summary", "")),
+                    keywords=clean_trailing_quotes(result.get("keywords", "")),
+                    photography_keywords=clean_trailing_quotes(result.get("photography_keywords", "")),
+                    activity_keywords=clean_trailing_quotes(result.get("activity_keywords", "")),
+                    exhibition_keywords=clean_trailing_quotes(result.get("exhibition_keywords", "")),
+                    academic_keywords=clean_trailing_quotes(result.get("academic_keywords", "")),
+                    activity_time=clean_trailing_quotes(result.get("activity_time", "")),
+                    location=clean_trailing_quotes(result.get("location", "")),
+                    location_city=clean_trailing_quotes(result.get("location_city", "")),
+                    organizer=clean_trailing_quotes(result.get("organizer", "")),
+                    artists=clean_trailing_quotes(result.get("artists", "")),
+                    sentiment=clean_trailing_quotes(result.get("sentiment", ""))
                 )
                 
                 if saved:
@@ -125,14 +136,213 @@ async def process_batch(db_client: DatabaseClient, llm_client: LLMClient, batch_
                 logger.error(f"Error saving summary for article {article_id}: {str(e)}")
                 return (False, article_id, index)
         
-        # Use a ThreadPoolExecutor to run database saves in parallel
+        # Use ThreadPoolExecutor to save results in parallel
         with concurrent.futures.ThreadPoolExecutor(max_workers=min(10, total_to_save)) as executor:
-            # Submit all tasks to the executor with index for tracking
+            future_to_result = {executor.submit(save_to_db, result, i): (result, i) 
+                               for i, result in enumerate(successful_results)}
+            
+            for future in concurrent.futures.as_completed(future_to_result):
+                success, article_id, index = future.result()
+                if success:
+                    success_count += 1
+                    logger.info(f"DB Save {index+1}/{total_to_save} ({(index+1)/total_to_save*100:.1f}%): ✅ Saved - Article ID: {article_id}")
+                else:
+                    logger.info(f"DB Save {index+1}/{total_to_save} ({(index+1)/total_to_save*100:.1f}%): ❌ Failed - Article ID: {article_id}")
+        
+        db_time = time.time() - start_db_time
+        logger.info(f"Database operations completed in {db_time:.2f} seconds. Success rate: {success_count}/{total_to_save} ({success_count/total_to_save*100:.1f}%)")
+    else:
+        logger.warning("No successful results to save to database.")
+    
+    # Return statistics
+    total_processed = len(articles)
+    total_failed = len(failed_results) + (len(successful_results) - success_count)
+    
+    return {
+        'processed': total_processed,
+        'success': success_count,  
+        'failed': total_failed
+    }
+
+
+async def process_batch(db_client: DatabaseClient, llm_client: LLMClient, batch_size: int, mp_id: Optional[str] = None) -> Dict[str, int]:
+    """
+    Process a batch of articles and save results to the database.
+    
+    Args:
+        db_client: Database client instance
+        llm_client: LLM client instance
+        batch_size: Number of articles to process in the batch
+        mp_id: Optional media publication ID to filter articles by
+        
+    Returns:
+        Number of successfully processed articles
+    """
+    # Get unprocessed article caches, filtering by mp_id if provided
+    articles = db_client.get_unprocessed_article_caches(batch_size, mp_id)
+    
+    # Use the normal batch processing function
+    return await process_normal_batch(db_client, llm_client, articles)
+
+
+async def process_async_batch(db_client: DatabaseClient, llm_client: LLMClient, batch_size: int, 
+                             check_interval_seconds: int = 30, mp_id: Optional[str] = None) -> Dict[str, int]:
+    """
+    Process a batch of articles using asynchronous batch API and save results to the database.
+    Note: This function will block until the batch job is completed, which may take hours.
+    
+    Args:
+        db_client: Database client instance
+        llm_client: LLM client instance
+        batch_size: Number of articles to process in the batch
+        check_interval_seconds: Seconds between status checks
+        mp_id: Optional media publication ID to filter articles by
+        
+    Returns:
+        Dictionary with processing statistics
+    """
+    # Get unprocessed article caches, filtering by mp_id if provided
+    articles = db_client.get_unprocessed_article_caches(batch_size, mp_id)
+    
+    if not articles:
+        logger.info("No unprocessed articles found.")
+        return {'processed': 0, 'success': 0, 'failed': 0}
+        
+    logger.info(f"Creating asynchronous batch job for {len(articles)} articles...")
+    logger.warning("⚠️  IMPORTANT: Asynchronous batch processing may take several hours to complete!")
+    
+    start_time = time.time()
+    
+    # Create the batch job
+    batch_info = llm_client.create_batch_job(articles, custom_id_prefix="processor")
+    
+    if not batch_info.get("success"):
+        logger.error(f"Failed to create batch job: {batch_info.get('error')}")
+        return {'processed': 0, 'success': 0, 'failed': len(articles)}
+    
+    batch_id = batch_info["batch_id"]
+    logger.info(f"✅ Batch job created successfully!")
+    logger.info(f"   Batch ID: {batch_id}")
+    logger.info(f"   Status: {batch_info['status']}")
+    logger.info(f"   Articles: {batch_info.get('total_requests', batch_info.get('article_count', 'unknown'))}")
+    logger.info(f"   Will check status every {check_interval_seconds} seconds")
+    
+    # Wait for completion with periodic status checks
+    logger.info("🕐 Waiting for batch processing to complete...")
+    
+    check_count = 0
+    while True:
+        check_count += 1
+        elapsed_time = time.time() - start_time
+        elapsed_minutes = elapsed_time / 60
+        elapsed_hours = elapsed_minutes / 60
+        
+        logger.info(f"📊 Status check #{check_count} (elapsed: {elapsed_hours:.1f}h)")
+        
+        # Check batch status
+        status_info = llm_client.get_batch_job_status(batch_id)
+        
+        if not status_info.get("success"):
+            logger.error(f"Failed to get batch status: {status_info.get('error')}")
+            return {'processed': len(articles), 'success': 0, 'failed': len(articles)}
+        
+        status = status_info.get("status")
+        logger.info(f"   Current status: {status}")
+        
+        if 'request_counts' in status_info:
+            counts = status_info['request_counts']
+            total = counts.get('total', 0)
+            completed = counts.get('completed', 0)
+            failed = counts.get('failed', 0)
+            if total > 0:
+                progress = (completed + failed) / total * 100
+                logger.info(f"   Progress: {completed + failed}/{total} ({progress:.1f}%) - Success: {completed}, Failed: {failed}")
+        
+        # Check if completed
+        if status == "completed":
+            logger.info("🎉 Batch processing completed successfully!")
+            break
+        elif status in ["failed", "expired", "cancelled"]:
+            logger.error(f"❌ Batch processing {status}")
+            return {'processed': len(articles), 'success': 0, 'failed': len(articles)}
+        
+        # Wait before next check
+        logger.info(f"⏰ Waiting {check_interval_seconds} seconds for next status check...")
+        await asyncio.sleep(check_interval_seconds)
+    
+    # Get the results
+    logger.info("📥 Retrieving batch results...")
+    results = llm_client.get_batch_job_results(batch_id)
+    
+    if not results:
+        logger.warning("Batch results empty - falling back to normal parallel processing")
+        # 回退到正常的并行处理模式
+        return await process_normal_batch(db_client, llm_client, articles)
+    
+    if len(results) == 1 and "error" in results[0]:
+        logger.error("Failed to retrieve batch results")
+        return {'processed': len(articles), 'success': 0, 'failed': len(articles)}
+    
+    logger.info(f"✅ Retrieved {len(results)} results from batch job")
+    
+    # Process and save results (similar to regular batch processing)
+    success_count = 0
+    successful_results = []
+    failed_results = []
+    
+    # Separate successful and failed results
+    for result in results:
+        if result.get("success", False):
+            summary = result.get("summary", "")
+            if summary.startswith("Error:"):
+                logger.error(f"LLM processing error for article {result['article_id']}: {summary}")
+                failed_results.append(result)
+            else:
+                successful_results.append(result)
+        else:
+            logger.error(f"Failed to process article {result['article_id']}: {result.get('error', 'Unknown error')}")
+            failed_results.append(result)
+    
+    # Save successful results to database
+    if successful_results:
+        total_to_save = len(successful_results)
+        logger.info(f"💾 Saving {total_to_save} results to database...")
+        start_db_time = time.time()
+        
+        def save_to_db(result, index):
+            article_id = result["article_id"]
+            try:
+                saved = db_client.save_ai_summary(
+                    article_id=article_id,
+                    summary=clean_trailing_quotes(result.get("summary", "")),
+                    keywords=clean_trailing_quotes(result.get("keywords", "")),
+                    photography_keywords=clean_trailing_quotes(result.get("photography_keywords", "")),
+                    activity_keywords=clean_trailing_quotes(result.get("activity_keywords", "")),
+                    exhibition_keywords=clean_trailing_quotes(result.get("exhibition_keywords", "")),
+                    academic_keywords=clean_trailing_quotes(result.get("academic_keywords", "")),
+                    activity_time=clean_trailing_quotes(result.get("activity_time", "")),
+                    location=clean_trailing_quotes(result.get("location", "")),
+                    location_city=clean_trailing_quotes(result.get("location_city", "")),
+                    organizer=clean_trailing_quotes(result.get("organizer", "")),
+                    artists=clean_trailing_quotes(result.get("artists", "")),
+                    sentiment=clean_trailing_quotes(result.get("sentiment", ""))
+                )
+                
+                if saved:
+                    return (True, article_id, index)
+                else:
+                    logger.error(f"Failed to save summary for article {article_id}")
+                    return (False, article_id, index)
+            except Exception as e:
+                logger.error(f"Error saving summary for article {article_id}: {str(e)}")
+                return (False, article_id, index)
+        
+        # Use ThreadPoolExecutor to save results in parallel
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(10, total_to_save)) as executor:
             future_to_result = {executor.submit(save_to_db, result, i): (result, i) 
                                for i, result in enumerate(successful_results)}
             
             saved_count = 0
-            # Process results as they complete
             for future in concurrent.futures.as_completed(future_to_result):
                 success, article_id, index = future.result()
                 saved_count += 1
@@ -144,14 +354,15 @@ async def process_batch(db_client: DatabaseClient, llm_client: LLMClient, batch_
                 else:
                     status = "❌ Failed"
                 
-                # Show progress for each saved article
                 logger.info(f"DB Save {saved_count}/{total_to_save} ({percent:.1f}%): {status} - Article ID: {article_id}")
         
         db_time = time.time() - start_db_time
-        logger.info(f"Database operations completed in {db_time:.2f} seconds. Success rate: {success_count}/{total_to_save} ({success_count/total_to_save*100:.1f}%)")            # Report failed articles that will be available for retry
+        logger.info(f"Database operations completed in {db_time:.2f} seconds. Success rate: {success_count}/{total_to_save} ({success_count/total_to_save*100:.1f}%)")
+    
+    # Report failed articles
     if failed_results:
         failed_count = len(failed_results)
-        logger.warning(f"{failed_count} articles failed processing and will be available for retry later:")
+        logger.warning(f"⚠️  {failed_count} articles failed processing:")
         for i, result in enumerate(failed_results, 1):
             article_id = result.get("article_id", "unknown")
             error = result.get("error", "Unknown error")
@@ -159,11 +370,14 @@ async def process_batch(db_client: DatabaseClient, llm_client: LLMClient, batch_
                 error = result.get("summary", "")
             logger.warning(f"  {i}. Article ID: {article_id} - Error: {error}")
     
-    # Return detailed results about the batch processing
+    total_time = time.time() - start_time
+    total_hours = total_time / 3600
+    logger.info(f"🏁 Async batch processing completed in {total_hours:.2f} hours")
+    
     return {
-        'processed': len(articles),        # Total processed in this batch
-        'success': success_count,          # Successfully processed and saved
-        'failed': len(failed_results)      # Failed in this batch
+        'processed': len(articles),
+        'success': success_count,
+        'failed': len(failed_results)
     }
 
 async def main():
@@ -174,6 +388,8 @@ async def main():
     parser.add_argument("--sleep", type=int, default=300, help="Sleep time in seconds between batches in continuous mode")
     parser.add_argument("--max-articles", type=int, default=0, help="Maximum number of articles to process (0 for unlimited)")
     parser.add_argument("--mp-id", type=str, help="Media publication ID to filter articles by")
+    parser.add_argument("--async-batch", action="store_true", help="Use asynchronous batch processing (may take hours to complete)")
+    parser.add_argument("--batch-check-interval", type=int, default=30, help="Seconds between batch status checks when using async batch mode")
     args = parser.parse_args()
     
     # Initialize clients
@@ -186,6 +402,18 @@ async def main():
     
     # Log startup information
     logger.info(f"Starting processor with date filter: {stats['date_filter']}")
+    
+    # Log processing mode
+    if args.async_batch:
+        logger.info("🚀 ASYNC BATCH MODE ENABLED")
+        logger.warning("⚠️  WARNING: Each batch may take several hours to complete!")
+        logger.info(f"   Batch size: {args.batch_size}")
+        logger.info(f"   Status check interval: {args.batch_check_interval} seconds")
+        if args.continuous:
+            logger.warning("   Continuous mode with async batch may result in very long processing times")
+    else:
+        logger.info("⚡ PARALLEL PROCESSING MODE (default)")
+        logger.info(f"   Batch size: {args.batch_size}")
     
     # Add mp information if provided
     if mp_id and 'mp_name' in stats:
@@ -222,8 +450,15 @@ async def main():
                           f"Speed: {articles_per_minute:.1f} articles/minute - " +
                           f"Success: {total_success} | Failed: {total_failed}")
             
-            # Process a batch
-            batch_result = await process_batch(db_client, llm_client, args.batch_size, mp_id)
+            # Process a batch using selected mode
+            if args.async_batch:
+                logger.info("🔄 Starting async batch processing...")
+                batch_result = await process_async_batch(
+                    db_client, llm_client, args.batch_size, 
+                    args.batch_check_interval, mp_id
+                )
+            else:
+                batch_result = await process_batch(db_client, llm_client, args.batch_size, mp_id)
             processed = batch_result['processed']
             success = batch_result['success']
             failed = batch_result['failed']
@@ -251,8 +486,17 @@ async def main():
                 
                 # Sleep between batches
                 if processed == 0:
-                    logger.info(f"No new articles to process. Sleeping for {args.sleep} seconds...")
-                    time.sleep(args.sleep)
+                    if args.async_batch:
+                        # For async batch mode, use longer sleep time since batches take hours
+                        sleep_time = max(args.sleep, 3600)  # At least 1 hour
+                        logger.info(f"No new articles to process. Sleeping for {sleep_time} seconds (async batch mode)...")
+                    else:
+                        logger.info(f"No new articles to process. Sleeping for {args.sleep} seconds...")
+                        sleep_time = args.sleep
+                    
+                    await asyncio.sleep(sleep_time)
+                elif args.async_batch:
+                    logger.info(f"Async batch completed")
                     
     except KeyboardInterrupt:
         logger.info("Process interrupted by user.")
